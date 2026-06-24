@@ -58,6 +58,8 @@ def build_master_df() -> pd.DataFrame:
             "License":           m.license_note,
             "Tabnine Available": m.tabnine_available,
             "Status":            "✅ Available" if m.tabnine_available else "🔜 Coming Soon",
+            "Cost Tier":         m.cost_tier,
+            "Cost Label":        {1: "💚 Low", 2: "🟡 Medium", 3: "🔴 High"}[m.cost_tier],
             # capability scores
             "Code Completion":  m.score_code_completion,
             "Code Generation":  m.score_code_generation,
@@ -125,4 +127,9 @@ def compute_overall_score(df: pd.DataFrame) -> pd.DataFrame:
     ]
     df = df.copy()
     df["Overall Score"] = df[cap_cols].mean(axis=1).round(2)
+    # Efficiency Score: penalise higher cost tiers so cheaper models rise
+    _cost_weight = {1: 1.0, 2: 1.6, 3: 2.5}
+    df["Efficiency Score"] = (
+        df["Overall Score"] / df["Cost Tier"].map(_cost_weight)
+    ).round(2)
     return df

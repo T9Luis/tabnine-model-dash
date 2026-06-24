@@ -752,7 +752,16 @@ with tab_benchmarks:
 # ============================================================
 with tab_task:
 
-    task_label = st.selectbox("Choose a task", options=list(TASKS.keys()))
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        task_label = st.selectbox("Choose a task", options=list(TASKS.keys()))
+    with col2:
+        mode = st.radio(
+            "Optimise for",
+            options=["⚡ Best performance", "💚 Best efficiency (score / cost)"],
+            index=0,
+        )
+    efficient_mode = mode.startswith("💚")
 
     col_map = {
         "Inline Code Completion":       "Code Completion",
@@ -766,9 +775,15 @@ with tab_task:
     }
     score_col = col_map[task_label]
 
+    _cw = {1: 1.0, 2: 1.6, 3: 2.5}
+
     df_task = df[["Model", "Status", "Tabnine Available", "Provider", "Category",
-                  "Deployment", "Thinking", "Context (K)", score_col, "Overall Score"]].copy()
-    df_task = df_task.sort_values(score_col, ascending=False).reset_index(drop=True)
+                  "Deployment", "Thinking", "Context (K)", "Cost Tier", "Cost Label",
+                  score_col, "Overall Score"]].copy()
+    df_task["Task Efficiency"] = (df_task[score_col] / df_task["Cost Tier"].map(_cw)).round(2)
+
+    sort_col = "Task Efficiency" if efficient_mode else score_col
+    df_task = df_task.sort_values(sort_col, ascending=False).reset_index(drop=True)
     df_task.index += 1
 
     # Separate available from upcoming — recommendation only from available models
@@ -784,19 +799,36 @@ with tab_task:
         # Build rationale sentences from the winner's actual data
         _reasons = []
 
-        _reasons.append(
-            f"It is the highest-scoring <strong>available</strong> Tabnine model for "
-            f"<strong>{task_label}</strong>, with a score of "
-            f"<strong>{winner[score_col]:.1f} / 10</strong> "
-            f"across {len(df_avail)} available models."
-        )
+        if efficient_mode:
+            _reasons.append(
+                f"It delivers the best <strong>score-to-cost ratio</strong> for "
+                f"<strong>{task_label}</strong> among {len(df_avail)} available models. "
+                f"Raw score: <strong>{winner[score_col]:.1f} / 10</strong> · "
+                f"Cost tier: <strong>{winner['Cost Label']}</strong> · "
+                f"Efficiency score: <strong>{winner['Task Efficiency']:.2f}</strong>."
+            )
+        else:
+            _reasons.append(
+                f"It is the highest-scoring <strong>available</strong> Tabnine model for "
+                f"<strong>{task_label}</strong>, with a score of "
+                f"<strong>{winner[score_col]:.1f} / 10</strong> "
+                f"across {len(df_avail)} available models."
+            )
 
         if runner_up is not None:
-            _gap = winner[score_col] - runner_up[score_col]
-            _reasons.append(
-                f"The nearest available alternative, {runner_up['Model']}, scores "
-                f"{runner_up[score_col]:.1f} — a gap of {_gap:.1f} points."
-            )
+            if efficient_mode:
+                _gap = winner["Task Efficiency"] - runner_up["Task Efficiency"]
+                _reasons.append(
+                    f"The next-best value option, {runner_up['Model']} "
+                    f"({runner_up['Cost Label']}), has an efficiency score of "
+                    f"{runner_up['Task Efficiency']:.2f} — a gap of {_gap:.2f}."
+                )
+            else:
+                _gap = winner[score_col] - runner_up[score_col]
+                _reasons.append(
+                    f"The nearest available alternative, {runner_up['Model']}, scores "
+                    f"{runner_up[score_col]:.1f} — a gap of {_gap:.1f} points."
+                )
 
         if winner["Thinking"] == "✓":
             _reasons.append(
@@ -839,37 +871,45 @@ with tab_task:
             unsafe_allow_html=True,
         )
 
-        # Surface any upcoming models that outscore the available winner
-        _ahead = df_upcoming[df_upcoming[score_col] > winner[score_col]]
+        # Surface any upcoming models that beat the available winner on the active metric
+        _ahead = df_upcoming[df_upcoming[sort_col] > winner[sort_col]]
         if not _ahead.empty:
+            _metric_lbl = "efficiency score" if efficient_mode else "score"
             _names = ", ".join(
-                f"{r['Model']} ({r[score_col]:.1f})"
+                f"{r['Model']} ({r[sort_col]:.2f})"
                 for _, r in _ahead.iterrows()
             )
             st.info(
                 f"**Coming soon — not yet in Tabnine:** {_names} "
-                f"score higher on this task but are not currently available. "
+                f"rank higher by {_metric_lbl} but are not currently available. "
                 f"They appear in the chart below for reference."
             )
+
+    _bar_x     = sort_col
+    _bar_label = ("Task Efficiency (score / cost weight)"
+                  if efficient_mode else f"{task_label} Score")
+    _bar_title = (f"All models ranked by efficiency ({task_label})"
+                  if efficient_mode else f"All models ranked by {task_label} score")
+    _bar_range = None if efficient_mode else [0, 10]
 
     _df_task_bar = with_source(df_task, score_col)
     fig_task = px.bar(
         _df_task_bar,
-        x=score_col,
+        x=_bar_x,
         y="Model",
         color="Provider",
         color_discrete_map=PROVIDER_COLORS,
         orientation="h",
-        text=score_col,
-        range_x=[0, 10],
+        text=_bar_x,
+        range_x=_bar_range,
         height=max(420, len(df_task) * 36),
-        labels={score_col: f"{task_label} Score"},
-        title=f"All models ranked by {task_label} score",
-        hover_data={"📄 Source": True, "Status": True},
+        labels={_bar_x: _bar_label},
+        title=_bar_title,
+        hover_data={"📄 Source": True, "Status": True, "Cost Label": True},
         pattern_shape="Status",
         pattern_shape_map={"✅ Available": "", "🔜 Coming Soon": "/"},
     )
-    fig_task.update_traces(texttemplate="%{text:.1f}", textposition="outside")
+    fig_task.update_traces(texttemplate="%{text:.2f}", textposition="outside")
     fig_task.update_layout(plot_bgcolor="white", yaxis_title=None)
     pchart(fig_task)
 
