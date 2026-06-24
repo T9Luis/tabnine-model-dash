@@ -414,14 +414,10 @@ with st.sidebar:
     st.markdown("### Compare Models")
     all_model_names = sorted(df_scored["Model"].tolist())
     compare_models = st.multiselect(
-        "Select models to compare (max 8)",
+        "Select models to compare",
         options=all_model_names,
         default=all_model_names[:4],
     )
-    # Enforce max 8 client-side without relying on max_selections param
-    if len(compare_models) > 8:
-        st.warning("Please select at most 8 models.")
-        compare_models = compare_models[:8]
 
     st.markdown("---")
     st.caption(
@@ -634,7 +630,7 @@ with tab_compare:
 
     st.markdown('<div class="section-header">Spider / Radar Comparison</div>', unsafe_allow_html=True)
 
-    df_cmp = df[df["Model"].isin(compare_models)].copy()
+    df_cmp = df_scored[df_scored["Model"].isin(compare_models)].copy()
 
     if df_cmp.empty:
         st.info("Select at least one model in the sidebar to compare.")
