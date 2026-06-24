@@ -1,3 +1,6 @@
+[![CI](https://github.com/T9Luis/tabnine-model-dash/actions/workflows/ci.yml/badge.svg)](https://github.com/T9Luis/tabnine-model-dash/actions/workflows/ci.yml)
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://tabnine-model-dash.streamlit.app)
+
 # Tabnine Model Dashboard
 
 A live, interactive Streamlit dashboard comparing every AI model available
