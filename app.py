@@ -7,8 +7,9 @@ hardware requirements, and task-specific recommendations.
 
 Data sources
 ------------
-- Static: Tabnine official docs (ai-models, models-settings, system-requirements)
-- Live:   EvalPlus HumanEval+, PapersWithCode SWE-bench, LiveCodeBench APIs
+Tabnine official docs (ai-models, models-settings, system-requirements),
+EvalPlus leaderboard, SWE-bench leaderboard, LiveCodeBench, and published
+model cards (GPQA / MMLU). All scores are static and manually curated.
 """
 
 from __future__ import annotations
@@ -19,7 +20,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 from data.models import MODELS, TASKS
-from data.live_benchmarks import fetch_all_live_scores
 from utils.dataframe import (
     build_master_df,
     capability_long_df,
@@ -177,25 +177,6 @@ st.markdown(
           color: {TABNINE_DARK};
       }}
 
-      .live-badge {{
-          background: {ACCENT_GREEN};
-          color: white;
-          padding: 0.2rem 0.6rem;
-          border-radius: 999px;
-          font-size: 0.72rem;
-          font-weight: 700;
-          vertical-align: middle;
-      }}
-      .stale-badge {{
-          background: {ACCENT_ORANGE};
-          color: white;
-          padding: 0.2rem 0.6rem;
-          border-radius: 999px;
-          font-size: 0.72rem;
-          font-weight: 700;
-          vertical-align: middle;
-      }}
-
       /* Availability badges */
       .avail-yes {{
           background: {ACCENT_GREEN};
@@ -338,25 +319,11 @@ def html_table(df_arg: pd.DataFrame, max_rows: int = 200) -> None:
 # Live data loading (cached 1 h)
 # ---------------------------------------------------------------------------
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def load_live_scores() -> tuple[dict, bool]:
-    try:
-        scores = fetch_all_live_scores()
-        is_live = bool(scores)
-    except Exception:
-        scores = {}
-        is_live = False
-    return scores, is_live
-
-
 # ---------------------------------------------------------------------------
 # Build DataFrames
 # ---------------------------------------------------------------------------
 
-with st.spinner("Fetching live benchmark data…"):
-    live_scores, is_live = load_live_scores()
-
-df_raw    = build_master_df(live_scores=live_scores)
+df_raw    = build_master_df()
 df_scored = compute_overall_score(df_raw)
 
 # ---------------------------------------------------------------------------
@@ -364,16 +331,12 @@ df_scored = compute_overall_score(df_raw)
 # ---------------------------------------------------------------------------
 
 st.markdown(
-    f"""
+    """
     <div class="hero">
       <h1>⚡ Tabnine Model Dashboard</h1>
       <p>
-        Live comparison of every AI model available in Tabnine — capability scores,
+        Compare every AI model available in Tabnine — capability scores,
         official benchmarks, hardware requirements, and task recommendations.
-        &nbsp;&nbsp;
-        <span class="{'live-badge' if is_live else 'stale-badge'}">
-          {'● LIVE DATA' if is_live else '● STATIC FALLBACK'}
-        </span>
       </p>
     </div>
     """,
@@ -698,13 +661,14 @@ with tab_benchmarks:
 
     st.markdown('<div class="section-header">Official Public Benchmarks</div>', unsafe_allow_html=True)
 
-    if is_live:
-        st.success("Benchmark data refreshed from live APIs (EvalPlus · SWE-bench · LiveCodeBench).")
-    else:
-        st.info(
-            "Live APIs unavailable — showing static baseline scores from Tabnine docs "
-            "and published model cards."
-        )
+    st.caption(
+        "Scores sourced from: "
+        "[EvalPlus leaderboard](https://evalplus.github.io/leaderboard.html) · "
+        "[SWE-bench leaderboard](https://www.swebench.com/) · "
+        "[LiveCodeBench](https://livecodebench.github.io/) · "
+        "published model cards (GPQA / MMLU). "
+        "All figures are manually curated from their respective published sources."
+    )
 
     bench_cols = ["HumanEval (%)", "MBPP (%)", "SWE-bench (%)", "GPQA (%)", "MMLU (%)", "LiveCodeBench (%)"]
     # Filter to only columns whose source is enabled in the sidebar

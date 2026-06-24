@@ -6,7 +6,6 @@ pandas DataFrames ready for Streamlit display and Plotly charts.
 from __future__ import annotations
 
 import pandas as pd
-from typing import Optional
 
 from data.models import MODELS, TabnineModel, TASKS, BENCHMARK_COLUMNS
 
@@ -34,16 +33,9 @@ BENCH_FIELDS = [
 ]
 
 
-def build_master_df(
-    live_scores: Optional[dict] = None,
-) -> pd.DataFrame:
+def build_master_df() -> pd.DataFrame:
     """
-    Build the master DataFrame from the static registry, optionally
-    overriding/supplementing benchmark columns with live API scores.
-
-    Args:
-        live_scores: Output of ``fetch_all_live_scores()`` — may be None
-                     (offline / API unavailable).
+    Build the master DataFrame from the static model registry.
 
     Returns:
         DataFrame with one row per model.
@@ -83,16 +75,6 @@ def build_master_df(
             "MMLU (%)":          m.bench_mmlu,
             "LiveCodeBench (%)": m.bench_livecodebench,
         }
-
-        # Overlay live scores where available
-        if live_scores and m.id in live_scores:
-            ls = live_scores[m.id]
-            if ls.get("humaneval") is not None:
-                row["HumanEval (%)"] = round(ls["humaneval"], 1)
-            if ls.get("swebench") is not None:
-                row["SWE-bench (%)"] = round(ls["swebench"], 1)
-            if ls.get("livecodebench") is not None:
-                row["LiveCodeBench (%)"] = round(ls["livecodebench"], 1)
 
         rows.append(row)
 

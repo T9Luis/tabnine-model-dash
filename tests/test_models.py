@@ -129,16 +129,4 @@ class TestDataFrame:
         assert isinstance(best, pd.Series)
         assert best["Code Generation"] == df["Code Generation"].max()
 
-    def test_live_score_override(self):
-        fake_live = {
-            "gpt-4.1": {
-                "humaneval": 95.5,
-                "swebench": 60.0,
-                "livecodebench": 70.0,
-            }
-        }
-        df_live = build_master_df(live_scores=fake_live)
-        row = df_live[df_live["id"] == "gpt-4.1"].iloc[0]
-        assert row["HumanEval (%)"] == 95.5
-        assert row["SWE-bench (%)"] == 60.0
-        assert row["LiveCodeBench (%)"] == 70.0
+
