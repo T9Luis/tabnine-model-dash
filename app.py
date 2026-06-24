@@ -808,8 +808,8 @@ with tab_task:
     }
     score_col = col_map[task_label]
 
-    df_task = df[["Model", "Provider", "Category", "Deployment", "Thinking",
-                  "Context (K)", score_col, "Overall Score"]].copy()
+    df_task = df[["Model", "Status", "Tabnine Available", "Provider", "Category",
+                  "Deployment", "Thinking", "Context (K)", score_col, "Overall Score"]].copy()
     df_task = df_task.sort_values(score_col, ascending=False).reset_index(drop=True)
     df_task.index += 1
 
