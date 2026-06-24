@@ -229,7 +229,8 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown("### Compare Models")
-    all_names = sorted(df_scored["Model"].tolist())
+    _cmp_pool = df_scored if show_upcoming else df_scored[df_scored["Tabnine Available"] == True]
+    all_names = sorted(_cmp_pool["Model"].tolist())
     compare_models = st.multiselect(
         "Select models",
         options=all_names,
@@ -316,21 +317,47 @@ tab_task, tab_overview, tab_compare, tab_benchmarks, tab_hardware, tab_table = s
 # ============================================================
 with tab_task:
 
-    # --- Controls row ---
-    ctrl_l, ctrl_r = st.columns([2, 1])
-    with ctrl_l:
-        task_label = st.selectbox(
-            "What do you want to do?",
-            options=list(TASKS.keys()),
-            label_visibility="visible",
-        )
-    with ctrl_r:
-        mode = st.radio(
-            "Optimise for",
-            options=["💚 Effectiveness (score / cost)", "⚡ Raw performance"],
-            index=0,
-        )
+    # --- Task selector (prominent) ---
+    st.markdown(
+        f"""
+        <div style="margin-bottom:0.3rem">
+          <span style="font-size:0.78rem;font-weight:600;text-transform:uppercase;
+                       letter-spacing:0.07em;color:{TABNINE_BLUE}">
+            Step 1 — Choose your task
+          </span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    task_label = st.selectbox(
+        "What do you need the model to do?",
+        options=list(TASKS.keys()),
+        label_visibility="collapsed",
+    )
+
+    st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+
+    # --- Mode toggle ---
+    st.markdown(
+        f"""
+        <div style="margin-bottom:0.3rem">
+          <span style="font-size:0.78rem;font-weight:600;text-transform:uppercase;
+                       letter-spacing:0.07em;color:{TABNINE_BLUE}">
+            Step 2 — Optimise for
+          </span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    mode = st.radio(
+        "Optimise for",
+        options=["💚 Effectiveness (score / cost)", "⚡ Raw performance"],
+        index=0,
+        horizontal=True,
+        label_visibility="collapsed",
+    )
     perf_mode = mode.startswith("⚡")
+    st.markdown("<div style='height:0.4rem'></div>", unsafe_allow_html=True)
 
     # Map task label → DataFrame column
     col_map = {
@@ -452,15 +479,19 @@ with tab_task:
                     f"but are not yet available in Tabnine."
                 )
 
-    # --- Bar chart ---
+    # --- Bar chart — sorted strictly by score/efficiency, provider colour is decorative only ---
     bar_x     = sort_col
     bar_label = (f"{task_label} Score (0–10)" if perf_mode
                  else "Effectiveness (score ÷ cost weight)")
     bar_title = (f"All models — {task_label} score"
                  if perf_mode else f"All models — {task_label} effectiveness")
 
+    # Sort ascending so highest value appears at the top of a horizontal bar chart
+    df_task_chart = df_task.sort_values(bar_x, ascending=True)
+    _task_order   = df_task_chart["Model"].tolist()
+
     fig_task = px.bar(
-        df_task,
+        df_task_chart,
         x=bar_x,
         y="Model",
         color="Provider",
@@ -468,12 +499,13 @@ with tab_task:
         orientation="h",
         text=bar_x,
         range_x=None if not perf_mode else [0, 10],
-        height=max(420, len(df_task) * 34),
+        height=max(420, len(df_task_chart) * 34),
         labels={bar_x: bar_label},
         title=bar_title,
         hover_data={"Status": True, "Cost Label": True},
         pattern_shape="Status",
         pattern_shape_map={"✅ Available": "", "🔜 Coming Soon": "/"},
+        category_orders={"Model": _task_order},
     )
     fig_task.update_traces(texttemplate="%{text:.2f}", textposition="outside")
     fig_task.update_layout(plot_bgcolor="white", yaxis_title=None)
@@ -494,7 +526,8 @@ with tab_overview:
 
     st.markdown('<div class="section-hdr">Overall Model Scores</div>', unsafe_allow_html=True)
 
-    df_bar = df.sort_values("Overall Score", ascending=True).copy()
+    df_bar      = df.sort_values("Overall Score", ascending=True).copy()
+    _bar_order  = df_bar["Model"].tolist()
     fig_bar = px.bar(
         df_bar,
         x="Overall Score",
@@ -504,11 +537,12 @@ with tab_overview:
         orientation="h",
         text="Overall Score",
         range_x=[0, 10],
-        height=max(400, len(df) * 36),
+        height=max(400, len(df_bar) * 36),
         labels={"Overall Score": "Avg Capability Score (0–10)"},
         hover_data={"Status": True, "Cost Label": True},
         pattern_shape="Status",
         pattern_shape_map={"✅ Available": "", "🔜 Coming Soon": "/"},
+        category_orders={"Model": _bar_order},
     )
     fig_bar.update_traces(
         texttemplate="%{text:.2f}",
@@ -520,21 +554,24 @@ with tab_overview:
 
     st.markdown('<div class="section-hdr">Effectiveness vs Performance</div>', unsafe_allow_html=True)
     st.caption(
-        "X-axis = Overall Score (raw performance). Y-axis = Efficiency Score (score ÷ cost weight). "
-        "Models in the top-right corner are both high-performing and cost-effective."
+        "X-axis = Overall Score (raw performance). Y-axis = Effectiveness Score (score ÷ cost weight). "
+        "Models in the top-right are both high-performing and cost-effective. "
+        "Hatched markers = coming soon."
     )
 
     fig_eff = px.scatter(
-        df[df["Tabnine Available"] == True],
+        df,
         x="Overall Score",
         y="Efficiency Score",
         color="Provider",
         color_discrete_map=PROVIDER_COLORS,
+        symbol="Status",
+        symbol_map={"✅ Available": "circle", "🔜 Coming Soon": "diamond-open"},
         size="Context (K)",
         size_max=28,
         hover_name="Model",
         text="Model",
-        hover_data={"Deployment": True, "Cost Label": True, "Thinking": True},
+        hover_data={"Deployment": True, "Cost Label": True, "Thinking": True, "Status": True},
         labels={"Overall Score": "Performance Score", "Efficiency Score": "Effectiveness Score"},
     )
     fig_eff.update_traces(textposition="top center", textfont_size=9)
@@ -547,7 +584,7 @@ with tab_overview:
 # ============================================================
 with tab_compare:
 
-    df_cmp = df_scored[df_scored["Model"].isin(compare_models)].copy()
+    df_cmp = df[df["Model"].isin(compare_models)].copy()
 
     if df_cmp.empty:
         st.info("Select models in the sidebar to compare.")
@@ -626,6 +663,7 @@ with tab_benchmarks:
     if df_b.empty:
         st.warning(f"No models have a reported {bench_sel} score.")
     else:
+        _bench_order = df_b["Model"].tolist()
         fig_bench = px.bar(
             df_b,
             x=bench_sel,
@@ -640,6 +678,7 @@ with tab_benchmarks:
             hover_data={"Status": True},
             pattern_shape="Status",
             pattern_shape_map={"✅ Available": "", "🔜 Coming Soon": "/"},
+            category_orders={"Model": _bench_order},
         )
         fig_bench.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
         fig_bench.update_layout(plot_bgcolor="white", yaxis_title=None)
@@ -684,6 +723,7 @@ with tab_hardware:
                 text="VRAM (GB)",
                 height=max(300, len(df_vram) * 40),
                 title="Min GPU VRAM (GB)",
+                category_orders={"Model": df_vram["Model"].tolist()},
             )
             fig_vram.update_traces(texttemplate="%{text} GB", textposition="outside")
             fig_vram.update_layout(plot_bgcolor="white", yaxis_title=None)
@@ -701,6 +741,7 @@ with tab_hardware:
                 text="Context (K)",
                 height=max(300, len(df_ctx) * 40),
                 title="Context Window (K tokens)",
+                category_orders={"Model": df_ctx["Model"].tolist()},
             )
             fig_ctx.update_traces(texttemplate="%{text:.0f}K", textposition="outside")
             fig_ctx.update_layout(plot_bgcolor="white", yaxis_title=None)
