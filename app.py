@@ -771,64 +771,86 @@ with tab_task:
     df_task = df_task.sort_values(score_col, ascending=False).reset_index(drop=True)
     df_task.index += 1
 
-    winner = df_task.iloc[0]
-    runner_up = df_task.iloc[1] if len(df_task) > 1 else None
+    # Separate available from upcoming — recommendation only from available models
+    df_avail    = df_task[df_task["Tabnine Available"] == True]
+    df_upcoming = df_task[df_task["Tabnine Available"] == False]
 
-    # Build rationale sentences from the model's actual data
-    _reasons = []
-
-    _reasons.append(
-        f"It leads all {len(df_task)} models in this category with a "
-        f"<strong>{task_label}</strong> score of <strong>{winner[score_col]:.1f} / 10</strong>."
-    )
-
-    if runner_up is not None:
-        _gap = winner[score_col] - runner_up[score_col]
-        _reasons.append(
-            f"The nearest competitor, {runner_up['Model']}, scores "
-            f"{runner_up[score_col]:.1f} — a gap of {_gap:.1f} points."
-        )
-
-    if winner["Thinking"] == "✓":
-        _reasons.append(
-            "Its extended thinking mode lets it reason through multi-step problems "
-            "before committing to an answer, which is especially valuable for this task."
-        )
-
-    ctx_k = winner["Context (K)"]
-    if pd.notna(ctx_k) and float(ctx_k) >= 100:
-        _reasons.append(
-            f"A {int(ctx_k)}K token context window means it can handle large files or "
-            "long conversation histories without losing relevant code."
-        )
-
-    if winner["Deployment"] == "Cloud":
-        _reasons.append(
-            "It runs fully in the cloud — no GPU infrastructure required on your end."
-        )
+    if df_avail.empty:
+        st.warning("No available Tabnine models match the current sidebar filters.")
     else:
+        winner    = df_avail.iloc[0]
+        runner_up = df_avail.iloc[1] if len(df_avail) > 1 else None
+
+        # Build rationale sentences from the winner's actual data
+        _reasons = []
+
         _reasons.append(
-            "As a self-hosted model, it can be deployed on-premises for data-privacy "
-            "or air-gapped environments."
+            f"It is the highest-scoring <strong>available</strong> Tabnine model for "
+            f"<strong>{task_label}</strong>, with a score of "
+            f"<strong>{winner[score_col]:.1f} / 10</strong> "
+            f"across {len(df_avail)} available models."
         )
 
-    _rationale_html = " ".join(f"<p style='margin:0.3rem 0'>{r}</p>" for r in _reasons)
+        if runner_up is not None:
+            _gap = winner[score_col] - runner_up[score_col]
+            _reasons.append(
+                f"The nearest available alternative, {runner_up['Model']}, scores "
+                f"{runner_up[score_col]:.1f} — a gap of {_gap:.1f} points."
+            )
 
-    st.markdown(
-        f"""
-        <div style="background:#EFF6FF;border:1px solid {TABNINE_BLUE};border-radius:10px;
-                    padding:1.1rem 1.5rem;margin-bottom:1.2rem;">
-          <div style="font-size:1.15rem;font-weight:700;margin-bottom:0.5rem;">
-            {winner['Model']}
-            <span style="font-size:0.85rem;font-weight:400;color:#555;">
-              &nbsp;·&nbsp;{winner['Provider']}&nbsp;·&nbsp;{winner['Deployment']}
-            </span>
-          </div>
-          {_rationale_html}
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        if winner["Thinking"] == "✓":
+            _reasons.append(
+                "Its extended thinking mode lets it reason through multi-step problems "
+                "before committing to an answer, which is especially valuable for this task."
+            )
+
+        ctx_k = winner["Context (K)"]
+        if pd.notna(ctx_k) and float(ctx_k) >= 100:
+            _reasons.append(
+                f"A {int(ctx_k)}K token context window means it can handle large files or "
+                "long conversation histories without losing relevant code."
+            )
+
+        if winner["Deployment"] == "Cloud":
+            _reasons.append(
+                "It runs fully in the cloud — no GPU infrastructure required on your end."
+            )
+        else:
+            _reasons.append(
+                "As a self-hosted model, it can be deployed on-premises for data-privacy "
+                "or air-gapped environments."
+            )
+
+        _rationale_html = " ".join(f"<p style='margin:0.3rem 0'>{r}</p>" for r in _reasons)
+
+        st.markdown(
+            f"""
+            <div style="background:#EFF6FF;border:1px solid {TABNINE_BLUE};border-radius:10px;
+                        padding:1.1rem 1.5rem;margin-bottom:0.8rem;">
+              <div style="font-size:1.15rem;font-weight:700;margin-bottom:0.5rem;">
+                {winner['Model']}
+                <span style="font-size:0.85rem;font-weight:400;color:#555;">
+                  &nbsp;·&nbsp;{winner['Provider']}&nbsp;·&nbsp;{winner['Deployment']}
+                </span>
+              </div>
+              {_rationale_html}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        # Surface any upcoming models that outscore the available winner
+        _ahead = df_upcoming[df_upcoming[score_col] > winner[score_col]]
+        if not _ahead.empty:
+            _names = ", ".join(
+                f"{r['Model']} ({r[score_col]:.1f})"
+                for _, r in _ahead.iterrows()
+            )
+            st.info(
+                f"**Coming soon — not yet in Tabnine:** {_names} "
+                f"score higher on this task but are not currently available. "
+                f"They appear in the chart below for reference."
+            )
 
     _df_task_bar = with_source(df_task, score_col)
     fig_task = px.bar(
