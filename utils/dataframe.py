@@ -149,11 +149,11 @@ def compute_overall_score(df: pd.DataFrame) -> pd.DataFrame:
 
     df = df.copy()
 
-    # Mean across whichever benchmarks are reported; NaN if none reported
+    # Mean across whichever benchmarks are reported.
+    # pandas mean(skipna=True) already returns float NaN for all-NaN rows,
+    # so no further assignment is needed — and pd.NA must not be used here
+    # because it is not a float and will crash .round() in pandas 3.x.
     df["Overall Score"] = df[bench_cols].mean(axis=1, skipna=True).round(2)
-    # Where every benchmark is NaN, mean returns NaN — keep it honest
-    all_missing = df[bench_cols].isna().all(axis=1)
-    df.loc[all_missing, "Overall Score"] = pd.NA
 
     df["Efficiency Score"] = (
         df["Overall Score"] / df["Cost Tier"].map(cost_weight)
