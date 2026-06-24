@@ -67,7 +67,6 @@ PROVIDER_COLORS = {
 st.markdown(
     f"""
     <style>
-      /* Header */
       .hero {{
           background: linear-gradient(135deg, {TABNINE_DARK} 0%, {TABNINE_BLUE} 100%);
           color: white;
@@ -78,7 +77,6 @@ st.markdown(
       .hero h1 {{ margin: 0; font-size: 2.2rem; font-weight: 800; }}
       .hero p  {{ margin: 0.4rem 0 0; opacity: 0.85; font-size: 1rem; }}
 
-      /* Metric cards */
       .metric-card {{
           background: #f8faff;
           border: 1px solid #dce8ff;
@@ -89,7 +87,6 @@ st.markdown(
       .metric-card h2 {{ color: {TABNINE_BLUE}; font-size: 2rem; margin: 0; }}
       .metric-card p  {{ color: #555; font-size: 0.82rem; margin: 0.2rem 0 0; }}
 
-      /* Winner badge */
       .winner-badge {{
           background: {TABNINE_BLUE};
           color: white;
@@ -100,7 +97,6 @@ st.markdown(
           display: inline-block;
       }}
 
-      /* Section headers */
       .section-header {{
           border-left: 4px solid {TABNINE_BLUE};
           padding-left: 0.75rem;
@@ -110,7 +106,6 @@ st.markdown(
           color: {TABNINE_DARK};
       }}
 
-      /* Live badge */
       .live-badge {{
           background: {ACCENT_GREEN};
           color: white;
@@ -135,15 +130,28 @@ st.markdown(
 )
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def pchart(fig, height=None):
+    """Render a Plotly figure full-width, compatible with Streamlit 1.58+."""
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def dtable(df_arg, height=None):
+    """Render a DataFrame full-width, compatible with Streamlit 1.58+."""
+    if height:
+        st.dataframe(df_arg, use_container_width=True, height=height)
+    else:
+        st.dataframe(df_arg, use_container_width=True)
+
+
+# ---------------------------------------------------------------------------
 # Live data loading (cached 1 h)
 # ---------------------------------------------------------------------------
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_live_scores() -> tuple[dict, bool]:
-    """
-    Returns (scores_dict, is_live).
-    is_live=False when all external calls failed (fallback to static data).
-    """
     try:
         scores = fetch_all_live_scores()
         is_live = bool(scores)
@@ -160,7 +168,7 @@ def load_live_scores() -> tuple[dict, bool]:
 with st.spinner("Fetching live benchmark data…"):
     live_scores, is_live = load_live_scores()
 
-df_raw   = build_master_df(live_scores=live_scores)
+df_raw    = build_master_df(live_scores=live_scores)
 df_scored = compute_overall_score(df_raw)
 
 # ---------------------------------------------------------------------------
@@ -217,11 +225,14 @@ with st.sidebar:
     st.markdown("### Compare Models")
     all_model_names = sorted(df_scored["Model"].tolist())
     compare_models = st.multiselect(
-        "Select models to compare",
+        "Select models to compare (max 8)",
         options=all_model_names,
         default=all_model_names[:4],
-        max_selections=8,
     )
+    # Enforce max 8 client-side without relying on max_selections param
+    if len(compare_models) > 8:
+        st.warning("Please select at most 8 models.")
+        compare_models = compare_models[:8]
 
     st.markdown("---")
     st.caption(
@@ -247,7 +258,7 @@ if df.empty:
     st.stop()
 
 # ---------------------------------------------------------------------------
-# Top KPI cards
+# KPI cards
 # ---------------------------------------------------------------------------
 
 col1, col2, col3, col4, col5 = st.columns(5)
@@ -324,9 +335,8 @@ with tab_overview:
         xaxis_showgrid=True,
         yaxis_title=None,
     )
-    st.plotly_chart(fig_bar, use_container_width=True)
+    pchart(fig_bar)
 
-    # ── Scatter: Code Generation vs Reasoning ──────────────────────────────
     st.markdown('<div class="section-header">Code Generation vs Reasoning</div>', unsafe_allow_html=True)
 
     fig_scatter = px.scatter(
@@ -349,9 +359,8 @@ with tab_overview:
         plot_bgcolor="white",
         height=500,
     )
-    st.plotly_chart(fig_scatter, use_container_width=True)
+    pchart(fig_scatter)
 
-    # ── Heatmap: all capability scores ────────────────────────────────────
     st.markdown('<div class="section-header">Capability Heatmap (All Tasks)</div>', unsafe_allow_html=True)
 
     cap_cols = [
@@ -373,7 +382,7 @@ with tab_overview:
         yaxis_title=None,
         coloraxis_colorbar_title="Score",
     )
-    st.plotly_chart(fig_heat, use_container_width=True)
+    pchart(fig_heat)
 
 
 # ============================================================
@@ -392,7 +401,7 @@ with tab_compare:
             "Code Completion", "Code Generation", "Reasoning", "Chat",
             "Debugging", "Refactoring", "Documentation", "Multi-file",
         ]
-        categories = cap_cols + [cap_cols[0]]  # close the polygon
+        categories = cap_cols + [cap_cols[0]]
 
         fig_radar = go.Figure()
         for _, row in df_cmp.iterrows():
@@ -412,9 +421,8 @@ with tab_compare:
             legend_title_text="Model",
             height=550,
         )
-        st.plotly_chart(fig_radar, use_container_width=True)
+        pchart(fig_radar)
 
-        # ── Grouped bar ──────────────────────────────────────────────────
         st.markdown('<div class="section-header">Capability Scores — Grouped Bar</div>', unsafe_allow_html=True)
 
         long = capability_long_df(df_cmp)
@@ -428,17 +436,13 @@ with tab_compare:
             height=420,
         )
         fig_grp.update_layout(plot_bgcolor="white", xaxis_title=None)
-        st.plotly_chart(fig_grp, use_container_width=True)
+        pchart(fig_grp)
 
-        # ── Summary table ─────────────────────────────────────────────────
         st.markdown('<div class="section-header">Summary Table</div>', unsafe_allow_html=True)
 
         display_cols = ["Model", "Provider", "Category", "Deployment", "Context (K)",
                         "Thinking", "Tool Calling"] + cap_cols + ["Overall Score"]
-        st.dataframe(
-            df_cmp[display_cols].set_index("Model"),
-            use_container_width=True,
-        )
+        dtable(df_cmp[display_cols].set_index("Model"))
 
 
 # ============================================================
@@ -446,10 +450,7 @@ with tab_compare:
 # ============================================================
 with tab_benchmarks:
 
-    st.markdown(
-        '<div class="section-header">Official Public Benchmarks</div>',
-        unsafe_allow_html=True,
-    )
+    st.markdown('<div class="section-header">Official Public Benchmarks</div>', unsafe_allow_html=True)
 
     if is_live:
         st.success("Benchmark data refreshed from live APIs (EvalPlus · SWE-bench · LiveCodeBench).")
@@ -462,12 +463,7 @@ with tab_benchmarks:
     bench_cols = ["HumanEval (%)", "MBPP (%)", "SWE-bench (%)", "GPQA (%)", "MMLU (%)", "LiveCodeBench (%)"]
     df_bench = df[["Model", "Provider"] + bench_cols].copy()
 
-    # ── Bar chart per benchmark ───────────────────────────────────────────
-    bench_sel = st.selectbox(
-        "Select benchmark",
-        options=bench_cols,
-        index=0,
-    )
+    bench_sel = st.selectbox("Select benchmark", options=bench_cols, index=0)
     df_b_filtered = df_bench.dropna(subset=[bench_sel]).sort_values(bench_sel, ascending=True)
 
     if df_b_filtered.empty:
@@ -490,17 +486,25 @@ with tab_benchmarks:
             yaxis_title=None,
             xaxis_range=[0, 100],
         )
-        st.plotly_chart(fig_bench, use_container_width=True)
+        pchart(fig_bench)
 
-    # ── Multi-benchmark comparison table ─────────────────────────────────
-    st.markdown('<div class="section-header">All Benchmarks Table</div>', unsafe_allow_html=True)
+    # Pure Plotly heatmap — no matplotlib dependency
+    st.markdown('<div class="section-header">All Benchmarks — Heatmap</div>', unsafe_allow_html=True)
 
-    styled = df_bench.set_index("Model").style.background_gradient(
-        cmap="Blues", subset=bench_cols, axis=None
-    ).format(precision=1, na_rep="–")
-    st.dataframe(styled, use_container_width=True)
+    bench_heat_df = df_bench.set_index("Model")[bench_cols].astype(float)
+    fig_bench_heat = px.imshow(
+        bench_heat_df,
+        text_auto=".1f",
+        color_continuous_scale="Blues",
+        zmin=0,
+        zmax=100,
+        aspect="auto",
+        height=max(350, len(bench_heat_df) * 38),
+        labels={"color": "Score (%)"},
+    )
+    fig_bench_heat.update_layout(xaxis_title=None, yaxis_title=None)
+    pchart(fig_bench_heat)
 
-    # ── Benchmark source legend ───────────────────────────────────────────
     with st.expander("Benchmark definitions"):
         st.markdown(
             """
@@ -524,16 +528,6 @@ with tab_task:
     st.markdown('<div class="section-header">Which model is best for my task?</div>', unsafe_allow_html=True)
 
     task_label = st.selectbox("Choose a task", options=list(TASKS.keys()))
-    task_col   = {v: k for k, v in {
-        "Code Completion":  "score_code_completion",
-        "Code Generation":  "score_code_generation",
-        "Reasoning":        "score_reasoning",
-        "Chat":             "score_chat",
-        "Debugging":        "score_debugging",
-        "Refactoring":      "score_refactoring",
-        "Documentation":    "score_documentation",
-        "Multi-file":       "score_multifile",
-    }.items()}
 
     col_map = {
         "Inline Code Completion":       "Code Completion",
@@ -552,7 +546,6 @@ with tab_task:
     df_task = df_task.sort_values(score_col, ascending=False).reset_index(drop=True)
     df_task.index += 1
 
-    # Winner callout
     winner = df_task.iloc[0]
     st.markdown(
         f"""
@@ -582,14 +575,10 @@ with tab_task:
     )
     fig_task.update_traces(texttemplate="%{text:.1f}", textposition="outside")
     fig_task.update_layout(plot_bgcolor="white", yaxis_title=None)
-    st.plotly_chart(fig_task, use_container_width=True)
+    pchart(fig_task)
 
-    st.dataframe(
-        df_task[["Model", "Provider", "Deployment", "Thinking", "Context (K)", score_col]],
-        use_container_width=True,
-    )
+    dtable(df_task[["Model", "Provider", "Deployment", "Thinking", "Context (K)", score_col]])
 
-    # ── Deployment split ──────────────────────────────────────────────────
     st.markdown('<div class="section-header">Cloud vs Self-Hosted for this task</div>', unsafe_allow_html=True)
 
     fig_dep = px.box(
@@ -601,7 +590,7 @@ with tab_task:
         labels={score_col: f"{task_label} Score"},
     )
     fig_dep.update_layout(showlegend=False, plot_bgcolor="white", height=350)
-    st.plotly_chart(fig_dep, use_container_width=True)
+    pchart(fig_dep)
 
 
 # ============================================================
@@ -632,7 +621,7 @@ with tab_hardware:
             )
             fig_vram.update_traces(texttemplate="%{text} GB", textposition="outside")
             fig_vram.update_layout(plot_bgcolor="white", yaxis_title=None)
-            st.plotly_chart(fig_vram, use_container_width=True)
+            pchart(fig_vram)
 
         with col_b:
             fig_ctx = px.bar(
@@ -648,16 +637,14 @@ with tab_hardware:
             )
             fig_ctx.update_traces(texttemplate="%{text:.0f}K", textposition="outside")
             fig_ctx.update_layout(plot_bgcolor="white", yaxis_title=None)
-            st.plotly_chart(fig_ctx, use_container_width=True)
+            pchart(fig_ctx)
 
-        # ── Detailed requirements table ────────────────────────────────────
         st.markdown('<div class="section-header">Deployment Specs</div>', unsafe_allow_html=True)
 
         hw_cols = ["Model", "Provider", "GPU (min)", "VRAM (GB)",
                    "Context (K)", "Thinking", "Tool Calling", "License"]
-        st.dataframe(df_hw[hw_cols].set_index("Model"), use_container_width=True)
+        dtable(df_hw[hw_cols].set_index("Model"))
 
-        # ── GPU topology bubbles ──────────────────────────────────────────
         st.markdown('<div class="section-header">VRAM vs Context Window (self-hosted)</div>', unsafe_allow_html=True)
 
         df_hw_clean = df_hw.dropna(subset=["VRAM (GB)"])
@@ -675,7 +662,7 @@ with tab_hardware:
         )
         fig_bubble.update_traces(textposition="top center", textfont_size=9)
         fig_bubble.update_layout(plot_bgcolor="white", height=420)
-        st.plotly_chart(fig_bubble, use_container_width=True)
+        pchart(fig_bubble)
 
     st.markdown("---")
     st.markdown('<div class="section-header">Cloud Models — Context Window</div>', unsafe_allow_html=True)
@@ -694,7 +681,7 @@ with tab_hardware:
     )
     fig_ctx_cloud.update_traces(texttemplate="%{text:.0f}K", textposition="outside")
     fig_ctx_cloud.update_layout(plot_bgcolor="white", yaxis_title=None)
-    st.plotly_chart(fig_ctx_cloud, use_container_width=True)
+    pchart(fig_ctx_cloud)
 
 
 # ============================================================
@@ -717,15 +704,13 @@ with tab_table:
     search = st.text_input("Search model name or provider", "")
     df_tbl = df[table_cols].copy()
     if search:
-        mask_s = df_tbl["Model"].str.contains(search, case=False) | \
-                 df_tbl["Provider"].str.contains(search, case=False)
+        mask_s = (
+            df_tbl["Model"].str.contains(search, case=False, na=False) |
+            df_tbl["Provider"].str.contains(search, case=False, na=False)
+        )
         df_tbl = df_tbl[mask_s]
 
-    st.dataframe(
-        df_tbl.set_index("Model"),
-        use_container_width=True,
-        height=550,
-    )
+    dtable(df_tbl.set_index("Model"), height=550)
 
     csv = df_tbl.to_csv(index=False).encode()
     st.download_button(
