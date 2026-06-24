@@ -30,8 +30,8 @@ git clone https://github.com/<your-org>/tabnine-model-dash.git
 cd tabnine-model-dash
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-streamlit run app.py
+    pip install -r requirements.txt
+    streamlit run streamlit_app.py
 ```
 
 Open `http://localhost:8501` in your browser.
