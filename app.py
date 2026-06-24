@@ -1,192 +1,99 @@
-# v2 rewrite - simplified
+# v3 — benchmark-only, real data
 from __future__ import annotations
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 from data.models import MODELS, TASKS
-from utils.dataframe import build_master_df, capability_long_df, compute_overall_score
+from utils.dataframe import build_master_df, benchmark_long_df, compute_overall_score, BENCH_DISPLAY
 
 st.set_page_config(page_title="Tabnine Model Dashboard", page_icon="⚡", layout="wide")
 
-# ---------------------------------------------------------------------------
-# Brand palette
-# ---------------------------------------------------------------------------
 TABNINE_BLUE  = "#1F46C1"
 TABNINE_DARK  = "#131A3A"
 ACCENT_GREEN  = "#00C950"
 ACCENT_ORANGE = "#FE9A00"
 
 PROVIDER_COLORS = {
-    "OpenAI":    "#10A37F",
-    "Anthropic": "#D4A96A",
-    "Google":    "#4285F4",
-    "Mistral":   "#FF7000",
-    "MiniMax":   "#7C3AED",
-    "Poolside":  "#0EA5E9",
-    "Zhipu AI":  "#E11D48",
-    "Alibaba":   "#FF6A00",
-    "Meta":      "#0866FF",
-    "DeepSeek":  "#5B21B6",
-    "Tabnine":   TABNINE_BLUE,
+    "OpenAI": "#10A37F", "Anthropic": "#D4A96A", "Google": "#4285F4",
+    "Mistral": "#FF7000", "MiniMax": "#7C3AED", "Poolside": "#0EA5E9",
+    "Zhipu AI": "#E11D48", "Alibaba": "#FF6A00", "Meta": "#0866FF", "Tabnine": TABNINE_BLUE,
 }
 
-# Cost weight map — used for efficiency score
 _CW = {1: 1.0, 2: 1.6, 3: 2.5}
+_BENCH_RAW_TO_DISPLAY = {v: k for k, v in BENCH_DISPLAY.items()}
+BENCH_COLS = list(BENCH_DISPLAY.keys())
 
-# ---------------------------------------------------------------------------
-# CSS
-# ---------------------------------------------------------------------------
+df_raw    = build_master_df()
+df_scored = compute_overall_score(df_raw)
+
 st.markdown(
     f"""
     <style>
-      .hero {{
-          background: linear-gradient(135deg, {TABNINE_DARK} 0%, {TABNINE_BLUE} 100%);
-          color: white;
-          padding: 1.8rem 2.2rem 1.4rem;
-          border-radius: 12px;
-          margin-bottom: 1.4rem;
-      }}
-      .hero h1 {{ margin: 0; font-size: 2rem; font-weight: 800; }}
-      .hero p  {{ margin: 0.3rem 0 0; opacity: 0.85; font-size: 0.95rem; }}
-
-      .kpi {{
-          background: #f8faff;
-          border: 1px solid #dce8ff;
-          border-radius: 10px;
-          padding: 0.9rem 1rem;
-          text-align: center;
-      }}
-      .kpi h2 {{ color: {TABNINE_BLUE}; font-size: 1.8rem; margin: 0; }}
-      .kpi p  {{ color: #555; font-size: 0.8rem; margin: 0.15rem 0 0; }}
-
-      .winner-card {{
-          background: #EFF6FF;
-          border: 1.5px solid {TABNINE_BLUE};
-          border-radius: 10px;
-          padding: 1rem 1.4rem;
-          margin-bottom: 0.6rem;
-      }}
-      .winner-card h3 {{ margin: 0 0 0.4rem; font-size: 1.15rem; color: {TABNINE_DARK}; }}
-      .winner-card p  {{ margin: 0.2rem 0; font-size: 0.88rem; color: #333; }}
-
-      .runner-card {{
-          background: #F0FDF4;
-          border: 1px solid #86EFAC;
-          border-radius: 10px;
-          padding: 1rem 1.4rem;
-          margin-bottom: 0.6rem;
-      }}
-      .runner-card h3 {{ margin: 0 0 0.4rem; font-size: 1rem; color: #166534; }}
-      .runner-card p  {{ margin: 0.2rem 0; font-size: 0.85rem; color: #333; }}
-
-      .section-hdr {{
-          border-left: 4px solid {TABNINE_BLUE};
-          padding-left: 0.65rem;
-          margin: 1.4rem 0 0.65rem;
-          font-weight: 700;
-          font-size: 1.05rem;
-          color: {TABNINE_DARK};
-      }}
-
-      .badge-avail {{
-          background: {ACCENT_GREEN};
-          color: white;
-          padding: 0.15rem 0.55rem;
-          border-radius: 999px;
-          font-size: 0.73rem;
-          font-weight: 600;
-      }}
-      .badge-soon {{
-          background: {ACCENT_ORANGE};
-          color: white;
-          padding: 0.15rem 0.55rem;
-          border-radius: 999px;
-          font-size: 0.73rem;
-          font-weight: 600;
-      }}
-
-      /* HTML tables */
-      .src-table {{
-          width: 100%;
-          border-collapse: collapse;
-          font-size: 0.82rem;
-      }}
-      .src-table th {{
-          background: {TABNINE_DARK};
-          color: white;
-          padding: 0.42rem 0.65rem;
-          text-align: left;
-          font-weight: 600;
-          white-space: nowrap;
-      }}
-      .src-table tr:nth-child(even) {{ background: #f4f7ff; }}
-      .src-table tr:hover td {{ background: #dce8ff !important; }}
-      .src-table td {{
-          padding: 0.35rem 0.65rem;
-          border-bottom: 1px solid #e5eaf5;
-          cursor: default;
-      }}
-      .src-table tr.cs td {{ opacity: 0.52; font-style: italic; }}
-      .src-table tr.cs:hover td {{ opacity: 0.8 !important; background: #fff8e8 !important; }}
+      .hero {{ background: linear-gradient(135deg, {TABNINE_DARK} 0%, {TABNINE_BLUE} 100%); color:white; padding:1.8rem 2.2rem 1.4rem; border-radius:12px; margin-bottom:1.4rem; }}
+      .hero h1 {{ margin:0; font-size:2rem; font-weight:800; }}
+      .hero p  {{ margin:0.3rem 0 0; opacity:0.85; font-size:0.95rem; }}
+      .kpi {{ background:#f8faff; border:1px solid #dce8ff; border-radius:10px; padding:0.9rem 1rem; text-align:center; }}
+      .kpi h2 {{ color:{TABNINE_BLUE}; font-size:1.8rem; margin:0; }}
+      .kpi p  {{ color:#555; font-size:0.8rem; margin:0.15rem 0 0; }}
+      .winner-card {{ background:#EFF6FF; border:1.5px solid {TABNINE_BLUE}; border-radius:10px; padding:1rem 1.4rem; margin-bottom:0.6rem; }}
+      .winner-card h3 {{ margin:0 0 0.4rem; font-size:1.15rem; color:{TABNINE_DARK}; }}
+      .winner-card p  {{ margin:0.2rem 0; font-size:0.88rem; color:#333; }}
+      .runner-card {{ background:#F0FDF4; border:1px solid #86EFAC; border-radius:10px; padding:1rem 1.4rem; margin-bottom:0.6rem; }}
+      .runner-card h3 {{ margin:0 0 0.4rem; font-size:1rem; color:#166534; }}
+      .runner-card p  {{ margin:0.2rem 0; font-size:0.85rem; color:#333; }}
+      .section-hdr {{ border-left:4px solid {TABNINE_BLUE}; padding-left:0.65rem; margin:1.4rem 0 0.65rem; font-weight:700; font-size:1.05rem; color:{TABNINE_DARK}; }}
+      .badge-avail {{ background:{ACCENT_GREEN}; color:white; padding:0.15rem 0.55rem; border-radius:999px; font-size:0.73rem; font-weight:600; }}
+      .badge-soon  {{ background:{ACCENT_ORANGE}; color:white; padding:0.15rem 0.55rem; border-radius:999px; font-size:0.73rem; font-weight:600; }}
+      .src-table {{ width:100%; border-collapse:collapse; font-size:0.82rem; }}
+      .src-table th {{ background:{TABNINE_DARK}; color:white; padding:0.42rem 0.65rem; text-align:left; font-weight:600; white-space:nowrap; }}
+      .src-table tr:nth-child(even) {{ background:#f4f7ff; }}
+      .src-table tr:hover td {{ background:#dce8ff !important; }}
+      .src-table td {{ padding:0.35rem 0.65rem; border-bottom:1px solid #e5eaf5; cursor:default; }}
+      .src-table tr.cs td {{ opacity:0.52; font-style:italic; }}
+      .src-table tr.cs:hover td {{ opacity:0.8 !important; background:#fff8e8 !important; }}
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# ---------------------------------------------------------------------------
-# Build data
-# ---------------------------------------------------------------------------
-df_raw    = build_master_df()
-df_scored = compute_overall_score(df_raw)
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def pchart(fig):
     st.plotly_chart(fig, use_container_width=True)
 
 
 def html_table(df_arg: pd.DataFrame, max_rows: int = 300) -> None:
-    """Render a styled HTML table with coming-soon rows dimmed."""
     import html as _html
-
     display_df = df_arg.head(max_rows).copy()
-
     if "Tabnine Available" in display_df.columns:
         avail_map = display_df["Tabnine Available"].to_dict()
         display_df = display_df.drop(columns=["Tabnine Available"])
     else:
         avail_map = {}
-
     def _fmt(val):
         if val is None or (isinstance(val, float) and pd.isna(val)):
             return "—"
         return _html.escape(str(val))
-
-    headers = "".join(
-        f"<th>{_html.escape(str(c))}</th>" for c in display_df.columns
-    )
-
+    headers = "".join(f"<th>{_html.escape(str(c))}</th>" for c in display_df.columns)
     rows_html = []
     for idx, row in display_df.iterrows():
         row_class = "" if avail_map.get(idx, True) else ' class="cs"'
         cells = "".join(f"<td>{_fmt(row[c])}</td>" for c in display_df.columns)
         rows_html.append(f"<tr{row_class}>{cells}</tr>")
-
     st.markdown(
         f'<div style="overflow-x:auto;max-height:500px;overflow-y:auto">'
-        f'<table class="src-table">'
-        f'<thead><tr>{headers}</tr></thead>'
-        f'<tbody>{"".join(rows_html)}</tbody>'
-        f'</table></div>',
+        f'<table class="src-table"><thead><tr>{headers}</tr></thead>'
+        f'<tbody>{"".join(rows_html)}</tbody></table></div>',
         unsafe_allow_html=True,
     )
 
 
+def _safe_idxmax(series: pd.Series):
+    valid = series.dropna()
+    return valid.idxmax() if not valid.empty else None
+
+
 # ---------------------------------------------------------------------------
-# Hero header
+# Hero
 # ---------------------------------------------------------------------------
 st.markdown(
     """
@@ -276,16 +183,17 @@ with k1:
         unsafe_allow_html=True,
     )
 with k2:
-    best = df[df["Tabnine Available"] == True]["Overall Score"].idxmax()
-    best_name = df.loc[best, "Model"] if not df[df["Tabnine Available"] == True].empty else "—"
+    avail_df = df[df["Tabnine Available"] == True]
+    _idx = _safe_idxmax(avail_df["Overall Score"])
+    best_name = avail_df.loc[_idx, "Model"] if _idx is not None else "—"
     st.markdown(
         f'<div class="kpi"><h2 style="font-size:1rem;padding-top:0.3rem">{best_name}</h2>'
         f'<p>Top overall score</p></div>',
         unsafe_allow_html=True,
     )
 with k3:
-    best_val = df[df["Tabnine Available"] == True]["Efficiency Score"].idxmax()
-    best_val_name = df.loc[best_val, "Model"] if not df[df["Tabnine Available"] == True].empty else "—"
+    _idx2 = _safe_idxmax(avail_df["Efficiency Score"])
+    best_val_name = avail_df.loc[_idx2, "Model"] if _idx2 is not None else "—"
     st.markdown(
         f'<div class="kpi"><h2 style="font-size:1rem;padding-top:0.3rem">{best_val_name}</h2>'
         f'<p>Best effectiveness</p></div>',
@@ -313,11 +221,10 @@ tab_task, tab_overview, tab_compare, tab_benchmarks, tab_hardware, tab_table = s
 ])
 
 # ============================================================
-# TAB 1 — Task Advisor (home)
+# TAB 1 — Task Advisor
 # ============================================================
 with tab_task:
 
-    # --- Task selector (prominent) ---
     st.markdown(
         f"""
         <div style="margin-bottom:0.3rem">
@@ -336,8 +243,6 @@ with tab_task:
     )
 
     st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
-
-    # --- Mode toggle ---
     st.markdown(
         f"""
         <div style="margin-bottom:0.3rem">
@@ -351,7 +256,7 @@ with tab_task:
     )
     mode = st.radio(
         "Optimise for",
-        options=["💚 Effectiveness (score / cost)", "⚡ Raw performance"],
+        options=["💚 Effectiveness (score / cost)", "⚡ Raw benchmark score"],
         index=0,
         horizontal=True,
         label_visibility="collapsed",
@@ -359,30 +264,40 @@ with tab_task:
     perf_mode = mode.startswith("⚡")
     st.markdown("<div style='height:0.4rem'></div>", unsafe_allow_html=True)
 
-    # Map task label → DataFrame column
-    col_map = {
-        "Inline Code Completion":       "Code Completion",
-        "Code Generation":              "Code Generation",
-        "Complex Reasoning / Planning": "Reasoning",
-        "Chat / Q&A":                   "Chat",
-        "Debugging":                    "Debugging",
-        "Refactoring":                  "Refactoring",
-        "Documentation":                "Documentation",
-        "Multi-file / Agentic":         "Multi-file",
-    }
-    score_col = col_map[task_label]
+    # Map task → benchmark display-column
+    bench_raw = TASKS[task_label]                           # e.g. "bench_swebench"
+    bench_col = _BENCH_RAW_TO_DISPLAY.get(bench_raw, "")   # e.g. "SWE-bench (%)"
 
-    df_task = df[
-        ["Model", "Status", "Tabnine Available", "Provider", "Category",
-         "Deployment", "Thinking", "Context (K)", "Cost Tier", "Cost Label",
-         score_col, "Overall Score"]
-    ].copy()
-    df_task["Task Efficiency"] = (
-        df_task[score_col] / df_task["Cost Tier"].map(_CW)
-    ).round(2)
+    # Build per-task working frame — only models that have a score for this benchmark
+    _base_cols = ["Model", "Status", "Tabnine Available", "Provider", "Category",
+                  "Deployment", "Thinking", "Context (K)", "Cost Tier", "Cost Label"]
 
-    sort_col   = score_col if perf_mode else "Task Efficiency"
-    df_task    = df_task.sort_values(sort_col, ascending=False).reset_index(drop=True)
+    if bench_col and bench_col in df.columns:
+        df_task = df[_base_cols + [bench_col, "Overall Score"]].copy()
+        df_task[bench_col] = pd.to_numeric(df_task[bench_col], errors="coerce")
+        df_task["Task Efficiency"] = (
+            df_task[bench_col] / df_task["Cost Tier"].map(_CW)
+        ).round(2)
+        sort_col   = bench_col if perf_mode else "Task Efficiency"
+        bar_label  = (f"{bench_col}" if perf_mode
+                      else f"Effectiveness ({bench_col} ÷ cost weight)")
+        bar_title  = (f"All models — {task_label} ({bench_col})"
+                      if perf_mode else f"All models — {task_label} effectiveness")
+    else:
+        df_task    = df[_base_cols + ["Overall Score"]].copy()
+        df_task["Task Efficiency"] = (
+            df_task["Overall Score"] / df_task["Cost Tier"].map(_CW)
+        ).round(2)
+        bench_col  = "Overall Score"
+        sort_col   = bench_col if perf_mode else "Task Efficiency"
+        bar_label  = "Overall Score (%)" if perf_mode else "Effectiveness (overall ÷ cost weight)"
+        bar_title  = f"All models — {task_label}"
+        st.info(
+            f"No dedicated benchmark is mapped for **{task_label}** yet. "
+            f"Showing Overall Score (mean of available benchmarks) as a proxy."
+        )
+
+    df_task = df_task.sort_values(sort_col, ascending=False, na_position="last").reset_index(drop=True)
     df_task.index += 1
 
     df_avail    = df_task[df_task["Tabnine Available"] == True]
@@ -391,61 +306,66 @@ with tab_task:
     if df_avail.empty:
         st.warning("No available Tabnine models match the current sidebar filters.")
     else:
-        winner    = df_avail.iloc[0]
-        runner_up = df_avail.iloc[1] if len(df_avail) > 1 else None
+        # Winner / runner-up — only from models that actually have a score
+        df_avail_scored = df_avail.dropna(subset=[sort_col])
+        winner    = df_avail_scored.iloc[0] if not df_avail_scored.empty else None
+        runner_up = df_avail_scored.iloc[1] if len(df_avail_scored) > 1 else None
 
-        # --- Winner + Runner-up cards side by side ---
         card_l, card_r = st.columns([1, 1])
 
         with card_l:
-            if perf_mode:
-                score_line = f"Score: <strong>{winner[score_col]:.1f} / 10</strong>"
-                why_line   = f"Highest raw score for <em>{task_label}</em> among {len(df_avail)} available models."
-            else:
-                score_line = (
-                    f"Score: <strong>{winner[score_col]:.1f}</strong> · "
-                    f"Cost: <strong>{winner['Cost Label']}</strong> · "
-                    f"Effectiveness: <strong>{winner['Task Efficiency']:.2f}</strong>"
+            if winner is not None:
+                score_val = winner[sort_col]
+                if perf_mode:
+                    score_line = f"Score: <strong>{score_val:.1f}%</strong>"
+                    why_line   = (f"Highest {bench_col} among {len(df_avail_scored)} "
+                                  f"models with reported data.")
+                else:
+                    score_line = (
+                        f"Benchmark: <strong>{winner[bench_col]:.1f}%</strong> · "
+                        f"Cost: <strong>{winner['Cost Label']}</strong> · "
+                        f"Effectiveness: <strong>{winner['Task Efficiency']:.2f}</strong>"
+                    )
+                    why_line = (
+                        f"Best score-to-cost ratio for <em>{task_label}</em> "
+                        f"across {len(df_avail_scored)} models with reported data."
+                    )
+
+                extras = []
+                if winner["Thinking"] == "✓":
+                    extras.append("Extended thinking mode — handles multi-step reasoning.")
+                ctx_k = winner["Context (K)"]
+                if pd.notna(ctx_k) and float(ctx_k) >= 100:
+                    extras.append(f"{int(ctx_k)}K token context window.")
+                if winner["Deployment"] == "Cloud":
+                    extras.append("Cloud-hosted — no GPU required.")
+                else:
+                    extras.append("Self-hosted — on-premises / air-gapped friendly.")
+                extra_html = "".join(f"<p>{e}</p>" for e in extras)
+
+                st.markdown(
+                    f"""
+                    <div class="winner-card">
+                      <h3>🥇 {winner['Model']}</h3>
+                      <p><strong>{winner['Provider']}</strong> · {winner['Deployment']}</p>
+                      <p>{score_line}</p>
+                      <p style="color:#555;font-size:0.83rem">{why_line}</p>
+                      {extra_html}
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
                 )
-                why_line = (
-                    f"Best score-to-cost ratio for <em>{task_label}</em> "
-                    f"across {len(df_avail)} available models."
-                )
-
-            extras = []
-            if winner["Thinking"] == "✓":
-                extras.append("Extended thinking mode — handles multi-step reasoning.")
-            ctx_k = winner["Context (K)"]
-            if pd.notna(ctx_k) and float(ctx_k) >= 100:
-                extras.append(f"{int(ctx_k)}K token context window.")
-            if winner["Deployment"] == "Cloud":
-                extras.append("Cloud-hosted — no GPU required.")
             else:
-                extras.append("Self-hosted — on-premises / air-gapped friendly.")
-
-            extra_html = "".join(f"<p>{e}</p>" for e in extras)
-
-            st.markdown(
-                f"""
-                <div class="winner-card">
-                  <h3>🥇 {winner['Model']}</h3>
-                  <p><strong>{winner['Provider']}</strong> · {winner['Deployment']}</p>
-                  <p>{score_line}</p>
-                  <p style="color:#555;font-size:0.83rem">{why_line}</p>
-                  {extra_html}
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+                st.info("No benchmark data available for the currently filtered models.")
 
         with card_r:
             if runner_up is not None:
                 if perf_mode:
-                    ru_score_line = f"Score: <strong>{runner_up[score_col]:.1f} / 10</strong>"
-                    gap_line = f"Gap to winner: {winner[score_col] - runner_up[score_col]:.1f} pts"
+                    ru_score_line = f"Score: <strong>{runner_up[bench_col]:.1f}%</strong>"
+                    gap_line = f"Gap to winner: {winner[bench_col] - runner_up[bench_col]:.1f} pp"
                 else:
                     ru_score_line = (
-                        f"Score: <strong>{runner_up[score_col]:.1f}</strong> · "
+                        f"Benchmark: <strong>{runner_up[bench_col]:.1f}%</strong> · "
                         f"Cost: <strong>{runner_up['Cost Label']}</strong> · "
                         f"Effectiveness: <strong>{runner_up['Task Efficiency']:.2f}</strong>"
                     )
@@ -453,7 +373,6 @@ with tab_task:
                         f"Effectiveness gap to winner: "
                         f"{winner['Task Efficiency'] - runner_up['Task Efficiency']:.2f}"
                     )
-
                 st.markdown(
                     f"""
                     <div class="runner-card">
@@ -466,9 +385,10 @@ with tab_task:
                     unsafe_allow_html=True,
                 )
 
-        # --- Coming-soon alert if any beat the winner ---
-        if not df_upcoming.empty:
-            ahead = df_upcoming[df_upcoming[sort_col] > winner[sort_col]]
+        # Coming-soon alert
+        if not df_upcoming.empty and winner is not None:
+            ahead = df_upcoming.dropna(subset=[sort_col])
+            ahead = ahead[ahead[sort_col] > winner[sort_col]]
             if not ahead.empty:
                 metric_lbl = "raw score" if perf_mode else "effectiveness"
                 names = ", ".join(
@@ -479,43 +399,41 @@ with tab_task:
                     f"but are not yet available in Tabnine."
                 )
 
-    # --- Bar chart — sorted strictly by score/efficiency, provider colour is decorative only ---
-    bar_x     = sort_col
-    bar_label = (f"{task_label} Score (0–10)" if perf_mode
-                 else "Effectiveness (score ÷ cost weight)")
-    bar_title = (f"All models — {task_label} score"
-                 if perf_mode else f"All models — {task_label} effectiveness")
-
-    # Sort ascending so highest value appears at the top of a horizontal bar chart
-    df_task_chart = df_task.sort_values(bar_x, ascending=True)
+    # Bar chart
+    df_task_chart = df_task.dropna(subset=[sort_col]).sort_values(sort_col, ascending=True)
     _task_order   = df_task_chart["Model"].tolist()
 
-    fig_task = px.bar(
-        df_task_chart,
-        x=bar_x,
-        y="Model",
-        color="Provider",
-        color_discrete_map=PROVIDER_COLORS,
-        orientation="h",
-        text=bar_x,
-        range_x=None if not perf_mode else [0, 10],
-        height=max(420, len(df_task_chart) * 34),
-        labels={bar_x: bar_label},
-        title=bar_title,
-        hover_data={"Status": True, "Cost Label": True},
-        pattern_shape="Status",
-        pattern_shape_map={"✅ Available": "", "🔜 Coming Soon": "/"},
-        category_orders={"Model": _task_order},
-    )
-    fig_task.update_traces(texttemplate="%{text:.2f}", textposition="outside")
-    fig_task.update_layout(plot_bgcolor="white", yaxis_title=None)
-    pchart(fig_task)
+    if not df_task_chart.empty:
+        fig_task = px.bar(
+            df_task_chart,
+            x=sort_col,
+            y="Model",
+            color="Provider",
+            color_discrete_map=PROVIDER_COLORS,
+            orientation="h",
+            text=sort_col,
+            height=max(420, len(df_task_chart) * 36),
+            labels={sort_col: bar_label},
+            title=bar_title,
+            hover_data={"Status": True, "Cost Label": True},
+            pattern_shape="Status",
+            pattern_shape_map={"✅ Available": "", "🔜 Coming Soon": "/"},
+            category_orders={"Model": _task_order},
+        )
+        fig_task.update_traces(texttemplate="%{text:.1f}", textposition="outside")
+        fig_task.update_layout(plot_bgcolor="white", yaxis_title=None)
+        pchart(fig_task)
 
-    # --- Lean table ---
+    # Lean table
     display_cols = ["Model", "Status", "Provider", "Deployment",
-                    "Thinking", "Context (K)", "Cost Label", score_col, "Task Efficiency"]
+                    "Thinking", "Context (K)", "Cost Label", bench_col, "Task Efficiency"]
+    available_cols = [c for c in display_cols if c in df_task.columns]
     html_table(
-        df_task[display_cols + ["Tabnine Available"]].set_index("Model")
+        df_task[available_cols + ["Tabnine Available"]].set_index("Model")
+    )
+    st.caption(
+        f"Sorted by **{sort_col}**. — = score not publicly reported for this model. "
+        f"Benchmark: [{bench_col}]"
     )
 
 
@@ -525,9 +443,14 @@ with tab_task:
 with tab_overview:
 
     st.markdown('<div class="section-hdr">Overall Model Scores</div>', unsafe_allow_html=True)
+    st.caption(
+        "Overall Score = mean of all publicly reported benchmark scores (%). "
+        "Models with no benchmark data show — in the table."
+    )
 
-    df_bar      = df.sort_values("Overall Score", ascending=True).copy()
-    _bar_order  = df_bar["Model"].tolist()
+    df_bar = df.dropna(subset=["Overall Score"]).sort_values("Overall Score", ascending=True)
+    _bar_order = df_bar["Model"].tolist()
+
     fig_bar = px.bar(
         df_bar,
         x="Overall Score",
@@ -536,16 +459,16 @@ with tab_overview:
         color_discrete_map=PROVIDER_COLORS,
         orientation="h",
         text="Overall Score",
-        range_x=[0, 10],
+        range_x=[0, 100],
         height=max(400, len(df_bar) * 36),
-        labels={"Overall Score": "Avg Capability Score (0–10)"},
+        labels={"Overall Score": "Avg Benchmark Score (%)"},
         hover_data={"Status": True, "Cost Label": True},
         pattern_shape="Status",
         pattern_shape_map={"✅ Available": "", "🔜 Coming Soon": "/"},
         category_orders={"Model": _bar_order},
     )
     fig_bar.update_traces(
-        texttemplate="%{text:.2f}",
+        texttemplate="%{text:.1f}",
         textposition="outside",
         marker_opacity=df_bar["Tabnine Available"].map({True: 1.0, False: 0.4}).tolist(),
     )
@@ -554,13 +477,14 @@ with tab_overview:
 
     st.markdown('<div class="section-hdr">Effectiveness vs Performance</div>', unsafe_allow_html=True)
     st.caption(
-        "X-axis = Overall Score (raw performance). Y-axis = Effectiveness Score (score ÷ cost weight). "
+        "X-axis = Overall Score (mean benchmark %). Y-axis = Effectiveness Score (score ÷ cost weight). "
         "Models in the top-right are both high-performing and cost-effective. "
         "Hatched markers = coming soon."
     )
 
+    df_eff = df.dropna(subset=["Overall Score", "Efficiency Score"])
     fig_eff = px.scatter(
-        df,
+        df_eff,
         x="Overall Score",
         y="Efficiency Score",
         color="Provider",
@@ -572,7 +496,7 @@ with tab_overview:
         hover_name="Model",
         text="Model",
         hover_data={"Deployment": True, "Cost Label": True, "Thinking": True, "Status": True},
-        labels={"Overall Score": "Performance Score", "Efficiency Score": "Effectiveness Score"},
+        labels={"Overall Score": "Performance (% avg benchmark)", "Efficiency Score": "Effectiveness"},
     )
     fig_eff.update_traces(textposition="top center", textfont_size=9)
     fig_eff.update_layout(plot_bgcolor="white", height=480)
@@ -589,56 +513,40 @@ with tab_compare:
     if df_cmp.empty:
         st.info("Select models in the sidebar to compare.")
     else:
-        CAP_COLS = [
-            "Code Completion", "Code Generation", "Reasoning", "Chat",
-            "Debugging", "Refactoring", "Documentation", "Multi-file",
-        ]
-
-        st.markdown('<div class="section-hdr">Capability Radar</div>', unsafe_allow_html=True)
-
-        fig_radar = go.Figure()
-        cats = CAP_COLS + [CAP_COLS[0]]
-        for _, row in df_cmp.iterrows():
-            vals = [row[c] for c in CAP_COLS] + [row[CAP_COLS[0]]]
-            fig_radar.add_trace(go.Scatterpolar(
-                r=vals,
-                theta=cats,
-                fill="toself",
-                name=row["Model"],
-                line_color=PROVIDER_COLORS.get(row["Provider"], "#888"),
-                opacity=0.65,
-                hovertemplate="<b>" + row["Model"] + "</b><br>%{theta}: %{r:.1f}<extra></extra>",
-            ))
-        fig_radar.update_layout(
-            polar=dict(radialaxis=dict(visible=True, range=[0, 10])),
-            showlegend=True,
-            legend_title_text="Model",
-            height=520,
+        st.markdown('<div class="section-hdr">Benchmark Comparison</div>', unsafe_allow_html=True)
+        st.caption(
+            "Only benchmarks where at least one selected model has a reported score are shown. "
+            "— = not publicly reported."
         )
-        pchart(fig_radar)
 
-        st.markdown('<div class="section-hdr">Score Breakdown</div>', unsafe_allow_html=True)
-
-        long = capability_long_df(df_cmp)
-        fig_grp = px.bar(
-            long,
-            x="Task",
-            y="Score",
-            color="Model",
-            barmode="group",
-            range_y=[0, 10],
-            height=400,
-        )
-        fig_grp.update_layout(plot_bgcolor="white", xaxis_title=None)
-        pchart(fig_grp)
+        long = benchmark_long_df(df_cmp)
+        if long.empty:
+            st.info("None of the selected models have publicly reported benchmark scores.")
+        else:
+            _bench_order = list(BENCH_DISPLAY.keys())
+            fig_grp = px.bar(
+                long,
+                x="Benchmark",
+                y="Score",
+                color="Model",
+                barmode="group",
+                range_y=[0, 100],
+                height=440,
+                labels={"Score": "Score (%)"},
+                title="Benchmark scores — selected models",
+                category_orders={"Benchmark": _bench_order},
+            )
+            fig_grp.update_layout(plot_bgcolor="white", xaxis_title=None)
+            pchart(fig_grp)
 
         st.markdown('<div class="section-hdr">Summary</div>', unsafe_allow_html=True)
-
         show_cols = (
             ["Model", "Status", "Provider", "Deployment", "Cost Label",
-             "Context (K)", "Thinking"] + CAP_COLS + ["Overall Score", "Efficiency Score"]
+             "Context (K)", "Thinking"]
+            + BENCH_COLS
+            + ["Overall Score", "Efficiency Score"]
         )
-        html_table(df_cmp[show_cols + ["Tabnine Available"]].set_index("Model"))
+        html_table(df_cmp[[c for c in show_cols if c in df_cmp.columns] + ["Tabnine Available"]].set_index("Model"))
 
 
 # ============================================================
@@ -654,10 +562,9 @@ with tab_benchmarks:
         "Published model cards (GPQA / MMLU). Scores are manually curated."
     )
 
-    bench_cols = ["HumanEval (%)", "MBPP (%)", "SWE-bench (%)", "GPQA (%)", "MMLU (%)", "LiveCodeBench (%)"]
-    bench_sel  = st.selectbox("Select benchmark", options=bench_cols, index=0)
+    bench_sel = st.selectbox("Select benchmark", options=BENCH_COLS, index=0)
 
-    df_bench = df[["Model", "Provider", "Status", "Tabnine Available"] + bench_cols].copy()
+    df_bench = df[["Model", "Provider", "Status", "Tabnine Available"] + BENCH_COLS].copy()
     df_b     = df_bench.dropna(subset=[bench_sel]).sort_values(bench_sel, ascending=True)
 
     if df_b.empty:
@@ -750,7 +657,7 @@ with tab_hardware:
         st.markdown('<div class="section-hdr">Specs Table</div>', unsafe_allow_html=True)
         hw_cols = ["Model", "Status", "Provider", "GPU (min)", "VRAM (GB)",
                    "Context (K)", "Thinking", "License"]
-        html_table(df_hw[hw_cols + ["Tabnine Available"]].set_index("Model"))
+        html_table(df_hw[[c for c in hw_cols if c in df_hw.columns] + ["Tabnine Available"]].set_index("Model"))
 
 
 # ============================================================
@@ -770,14 +677,12 @@ with tab_table:
     tbl_cols = [
         "Model", "Status", "Provider", "Family", "Category", "Deployment", "Plan",
         "Context (K)", "Thinking", "Tool Calling", "Cost Label",
-        "Code Completion", "Code Generation", "Reasoning", "Chat",
-        "Debugging", "Refactoring", "Documentation", "Multi-file",
         "Overall Score", "Efficiency Score",
-        "HumanEval (%)", "MBPP (%)", "SWE-bench (%)", "GPQA (%)", "MMLU (%)", "LiveCodeBench (%)",
+    ] + BENCH_COLS + [
         "GPU (min)", "VRAM (GB)", "License",
     ]
 
-    df_tbl = df[tbl_cols + ["Tabnine Available"]].copy()
+    df_tbl = df[[c for c in tbl_cols if c in df.columns] + ["Tabnine Available"]].copy()
     if search:
         mask_s = (
             df_tbl["Model"].str.contains(search, case=False, na=False) |
@@ -793,6 +698,7 @@ with tab_table:
         file_name="tabnine_models.csv",
         mime="text/csv",
     )
+
 
 # ---------------------------------------------------------------------------
 # Footer
