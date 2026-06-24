@@ -1,213 +1,121 @@
-"""
-Tabnine AI Model Comparison Dashboard
-======================================
-Streamlit app providing a live, interactive comparison of every AI model
-available in Tabnine — covering capability scores, official benchmarks,
-hardware requirements, and task-specific recommendations.
-
-Data sources
-------------
-Tabnine official docs (ai-models, models-settings, system-requirements),
-EvalPlus leaderboard, SWE-bench leaderboard, LiveCodeBench, and published
-model cards (GPQA / MMLU). All scores are static and manually curated.
-"""
-
+# v2 rewrite - simplified
 from __future__ import annotations
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-
 from data.models import MODELS, TASKS
-from utils.dataframe import (
-    build_master_df,
-    capability_long_df,
-    benchmark_long_df,
-    best_model_for_task,
-    compute_overall_score,
-)
+from utils.dataframe import build_master_df, capability_long_df, compute_overall_score
+
+st.set_page_config(page_title="Tabnine Model Dashboard", page_icon="⚡", layout="wide")
 
 # ---------------------------------------------------------------------------
-# Page config
+# Brand palette
 # ---------------------------------------------------------------------------
-
-st.set_page_config(
-    page_title="Tabnine Model Dashboard",
-    page_icon="⚡",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
-# ---------------------------------------------------------------------------
-# Brand palette (Tabnine blue)
-# ---------------------------------------------------------------------------
-
 TABNINE_BLUE  = "#1F46C1"
 TABNINE_DARK  = "#131A3A"
-ACCENT_ORANGE = "#FE9A00"
 ACCENT_GREEN  = "#00C950"
+ACCENT_ORANGE = "#FE9A00"
 
 PROVIDER_COLORS = {
     "OpenAI":    "#10A37F",
     "Anthropic": "#D4A96A",
     "Google":    "#4285F4",
-    "xAI":       "#000000",
     "Mistral":   "#FF7000",
     "MiniMax":   "#7C3AED",
     "Poolside":  "#0EA5E9",
-    "Kodu AI":   "#E11D48",
+    "Zhipu AI":  "#E11D48",
+    "Alibaba":   "#FF6A00",
+    "Meta":      "#0866FF",
+    "DeepSeek":  "#5B21B6",
     "Tabnine":   TABNINE_BLUE,
 }
 
-# ---------------------------------------------------------------------------
-# Data-source citations — shown in chart hover tooltips and table header tips
-# ---------------------------------------------------------------------------
-
-SOURCES: dict[str, str] = {
-    # Capability scores
-    "Code Completion":  "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
-    "Code Generation":  "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
-    "Reasoning":        "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
-    "Chat":             "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
-    "Debugging":        "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
-    "Refactoring":      "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
-    "Documentation":    "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
-    "Multi-file":       "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
-    "Overall Score":    "Weighted average of 8 capability scores · Tabnine AI Models docs",
-    # Benchmarks
-    "HumanEval (%)":       "EvalPlus Leaderboard · evalplus.github.io/leaderboard.html · pass@1 on HumanEval+",
-    "MBPP (%)":            "EvalPlus Leaderboard · evalplus.github.io/leaderboard.html · pass@1 on MBPP+",
-    "SWE-bench (%)":       "SWE-bench Verified · swebench.com · % of GitHub issues resolved end-to-end",
-    "GPQA (%)":            "Published model cards & papers · Graduate-level STEM Q&A (Diamond set)",
-    "MMLU (%)":            "Published model cards & papers · Massive Multitask Language Understanding",
-    "LiveCodeBench (%)":   "LiveCodeBench · livecodebench.github.io · contamination-free coding benchmark",
-    # Technical / hardware specs
-    "Context (K)":  "Tabnine System Requirements · docs.tabnine.com/main/welcome/readme/system-requirements",
-    "GPU (min)":    "Tabnine System Requirements · docs.tabnine.com/main/welcome/readme/system-requirements",
-    "VRAM (GB)":    "Tabnine System Requirements · docs.tabnine.com/main/welcome/readme/system-requirements",
-    # Model metadata
-    "Provider":    "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
-    "Family":      "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
-    "Category":    "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
-    "Deployment":  "Tabnine Model Settings · docs.tabnine.com/main/administering-tabnine/managing-your-team/settings/models-settings",
-    "Plan":        "Tabnine Model Settings · docs.tabnine.com/main/administering-tabnine/managing-your-team/settings/models-settings",
-    "Thinking":    "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
-    "Tool Calling":"Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
-    "License":            "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
-    "Status":             "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
-    "Tabnine Available":  "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
-}
-
-# Generic fallback shown when a specific key is not in SOURCES
-_FALLBACK_SOURCE = "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models"
-
-
-def with_source(df_slice: pd.DataFrame, key: str) -> pd.DataFrame:
-    """Return a copy of *df_slice* with a '📄 Source' column appended.
-
-    Pass the result straight to a Plotly Express call and include
-    ``hover_data={"📄 Source": True}`` — the source citation then appears
-    at the bottom of every hover tooltip.
-    """
-    out = df_slice.copy()
-    out["📄 Source"] = SOURCES.get(key, _FALLBACK_SOURCE)
-    return out
-
-
-def col_cfg(*field_names: str) -> dict:
-    """Build a ``column_config`` dict for ``st.dataframe``.
-
-    Each named field gets a ``help=`` tooltip (the ℹ icon on the column
-    header) showing its authoritative source when the user hovers over it.
-
-    Usage::
-
-        st.dataframe(df, column_config=col_cfg("HumanEval (%)", "MBPP (%)"))
-    """
-    config = {}
-    for name in field_names:
-        source = SOURCES.get(name, _FALLBACK_SOURCE)
-        config[name] = st.column_config.Column(help=f"Source: {source}")
-    return config
+# Cost weight map — used for efficiency score
+_CW = {1: 1.0, 2: 1.6, 3: 2.5}
 
 # ---------------------------------------------------------------------------
-# Custom CSS
+# CSS
 # ---------------------------------------------------------------------------
-
 st.markdown(
     f"""
     <style>
       .hero {{
           background: linear-gradient(135deg, {TABNINE_DARK} 0%, {TABNINE_BLUE} 100%);
           color: white;
-          padding: 2rem 2.5rem 1.5rem;
+          padding: 1.8rem 2.2rem 1.4rem;
           border-radius: 12px;
-          margin-bottom: 1.5rem;
+          margin-bottom: 1.4rem;
       }}
-      .hero h1 {{ margin: 0; font-size: 2.2rem; font-weight: 800; }}
-      .hero p  {{ margin: 0.4rem 0 0; opacity: 0.85; font-size: 1rem; }}
+      .hero h1 {{ margin: 0; font-size: 2rem; font-weight: 800; }}
+      .hero p  {{ margin: 0.3rem 0 0; opacity: 0.85; font-size: 0.95rem; }}
 
-      .metric-card {{
+      .kpi {{
           background: #f8faff;
           border: 1px solid #dce8ff;
           border-radius: 10px;
-          padding: 1rem 1.2rem;
+          padding: 0.9rem 1rem;
           text-align: center;
       }}
-      .metric-card h2 {{ color: {TABNINE_BLUE}; font-size: 2rem; margin: 0; }}
-      .metric-card p  {{ color: #555; font-size: 0.82rem; margin: 0.2rem 0 0; }}
+      .kpi h2 {{ color: {TABNINE_BLUE}; font-size: 1.8rem; margin: 0; }}
+      .kpi p  {{ color: #555; font-size: 0.8rem; margin: 0.15rem 0 0; }}
 
-      .winner-badge {{
-          background: {TABNINE_BLUE};
-          color: white;
-          padding: 0.25rem 0.8rem;
-          border-radius: 999px;
-          font-size: 0.78rem;
-          font-weight: 600;
-          display: inline-block;
+      .winner-card {{
+          background: #EFF6FF;
+          border: 1.5px solid {TABNINE_BLUE};
+          border-radius: 10px;
+          padding: 1rem 1.4rem;
+          margin-bottom: 0.6rem;
       }}
+      .winner-card h3 {{ margin: 0 0 0.4rem; font-size: 1.15rem; color: {TABNINE_DARK}; }}
+      .winner-card p  {{ margin: 0.2rem 0; font-size: 0.88rem; color: #333; }}
 
-      .section-header {{
+      .runner-card {{
+          background: #F0FDF4;
+          border: 1px solid #86EFAC;
+          border-radius: 10px;
+          padding: 1rem 1.4rem;
+          margin-bottom: 0.6rem;
+      }}
+      .runner-card h3 {{ margin: 0 0 0.4rem; font-size: 1rem; color: #166534; }}
+      .runner-card p  {{ margin: 0.2rem 0; font-size: 0.85rem; color: #333; }}
+
+      .section-hdr {{
           border-left: 4px solid {TABNINE_BLUE};
-          padding-left: 0.75rem;
-          margin: 1.5rem 0 0.75rem;
+          padding-left: 0.65rem;
+          margin: 1.4rem 0 0.65rem;
           font-weight: 700;
-          font-size: 1.1rem;
+          font-size: 1.05rem;
           color: {TABNINE_DARK};
       }}
 
-      /* Availability badges */
-      .avail-yes {{
+      .badge-avail {{
           background: {ACCENT_GREEN};
           color: white;
-          padding: 0.18rem 0.6rem;
+          padding: 0.15rem 0.55rem;
           border-radius: 999px;
-          font-size: 0.75rem;
+          font-size: 0.73rem;
           font-weight: 600;
-          white-space: nowrap;
       }}
-      .avail-soon {{
+      .badge-soon {{
           background: {ACCENT_ORANGE};
           color: white;
-          padding: 0.18rem 0.6rem;
+          padding: 0.15rem 0.55rem;
           border-radius: 999px;
-          font-size: 0.75rem;
+          font-size: 0.73rem;
           font-weight: 600;
-          white-space: nowrap;
       }}
 
-      /* Source-aware HTML table */
+      /* HTML tables */
       .src-table {{
           width: 100%;
           border-collapse: collapse;
           font-size: 0.82rem;
-          margin-top: 0.5rem;
       }}
       .src-table th {{
           background: {TABNINE_DARK};
           color: white;
-          padding: 0.45rem 0.7rem;
+          padding: 0.42rem 0.65rem;
           text-align: left;
           font-weight: 600;
           white-space: nowrap;
@@ -215,142 +123,88 @@ st.markdown(
       .src-table tr:nth-child(even) {{ background: #f4f7ff; }}
       .src-table tr:hover td {{ background: #dce8ff !important; }}
       .src-table td {{
-          padding: 0.38rem 0.7rem;
+          padding: 0.35rem 0.65rem;
           border-bottom: 1px solid #e5eaf5;
           cursor: default;
       }}
-      /* Dim rows for coming-soon models */
-      .src-table tr.coming-soon td {{
-          opacity: 0.55;
-          font-style: italic;
-      }}
-      .src-table tr.coming-soon:hover td {{
-          opacity: 0.8 !important;
-          background: #fff8e8 !important;
-      }}
+      .src-table tr.cs td {{ opacity: 0.52; font-style: italic; }}
+      .src-table tr.cs:hover td {{ opacity: 0.8 !important; background: #fff8e8 !important; }}
     </style>
     """,
     unsafe_allow_html=True,
 )
 
 # ---------------------------------------------------------------------------
+# Build data
+# ---------------------------------------------------------------------------
+df_raw    = build_master_df()
+df_scored = compute_overall_score(df_raw)
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def pchart(fig, height=None):
-    """Render a Plotly figure full-width, compatible with Streamlit 1.58+."""
+def pchart(fig):
     st.plotly_chart(fig, use_container_width=True)
 
 
-def dtable(df_arg, height=None, column_config=None):
-    """Render a DataFrame full-width, compatible with Streamlit 1.58+.
-
-    Pass ``column_config=col_cfg(...)`` to attach source-citation tooltips
-    to individual column headers.
-    """
-    kwargs = {"use_container_width": True}
-    if height:
-        kwargs["height"] = height
-    if column_config:
-        kwargs["column_config"] = column_config
-    st.dataframe(df_arg, **kwargs)
-
-
-def html_table(df_arg: pd.DataFrame, max_rows: int = 200) -> None:
-    """Render *df_arg* as a styled HTML table with per-cell hover source tooltips.
-
-    Each cell carries a ``title`` attribute — the browser shows it as a
-    native tooltip on hover (no JS required). Coming-soon models are
-    rendered in a dimmed italic style.
-
-    Args:
-        df_arg:   DataFrame to render. If it has a 'Tabnine Available' column,
-                  that is used to apply the coming-soon row class and is then
-                  dropped from display.
-        max_rows: Safety cap to avoid giant DOM payloads.
-    """
+def html_table(df_arg: pd.DataFrame, max_rows: int = 300) -> None:
+    """Render a styled HTML table with coming-soon rows dimmed."""
     import html as _html
 
     display_df = df_arg.head(max_rows).copy()
 
-    # Extract availability info before dropping the sentinel column
     if "Tabnine Available" in display_df.columns:
         avail_map = display_df["Tabnine Available"].to_dict()
         display_df = display_df.drop(columns=["Tabnine Available"])
     else:
         avail_map = {}
 
-    def _cell_source(col: str) -> str:
-        return SOURCES.get(col, _FALLBACK_SOURCE)
-
-    def _fmt(val) -> str:
+    def _fmt(val):
         if val is None or (isinstance(val, float) and pd.isna(val)):
             return "—"
         return _html.escape(str(val))
 
-    # Build header
     headers = "".join(
-        f'<th title="Source: {_cell_source(col)}">{_html.escape(str(col))}</th>'
-        for col in display_df.columns
+        f"<th>{_html.escape(str(c))}</th>" for c in display_df.columns
     )
 
-    # Build rows
     rows_html = []
     for idx, row in display_df.iterrows():
-        is_avail = avail_map.get(idx, True)
-        row_class = "" if is_avail else " class=\"coming-soon\""
-        cells = "".join(
-            f'<td title="📄 Source: {_cell_source(col)}">{_fmt(row[col])}</td>'
-            for col in display_df.columns
-        )
+        row_class = "" if avail_map.get(idx, True) else ' class="cs"'
+        cells = "".join(f"<td>{_fmt(row[c])}</td>" for c in display_df.columns)
         rows_html.append(f"<tr{row_class}>{cells}</tr>")
 
-    table_html = (
-        f'<div style="overflow-x:auto;max-height:520px;overflow-y:auto">'
+    st.markdown(
+        f'<div style="overflow-x:auto;max-height:500px;overflow-y:auto">'
         f'<table class="src-table">'
         f'<thead><tr>{headers}</tr></thead>'
         f'<tbody>{"".join(rows_html)}</tbody>'
-        f'</table></div>'
+        f'</table></div>',
+        unsafe_allow_html=True,
     )
-    st.markdown(table_html, unsafe_allow_html=True)
 
-
-# ---------------------------------------------------------------------------
-# Live data loading (cached 1 h)
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
-# Build DataFrames
-# ---------------------------------------------------------------------------
-
-df_raw    = build_master_df()
-df_scored = compute_overall_score(df_raw)
 
 # ---------------------------------------------------------------------------
 # Hero header
 # ---------------------------------------------------------------------------
-
 st.markdown(
     """
     <div class="hero">
       <h1>⚡ Tabnine Model Dashboard</h1>
-      <p>
-        Compare every AI model available in Tabnine — capability scores,
-        official benchmarks, hardware requirements, and task recommendations.
-      </p>
+      <p>Find the right AI model for every task — ranked by effectiveness, performance, and cost.</p>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
 # ---------------------------------------------------------------------------
-# Sidebar filters
+# Sidebar
 # ---------------------------------------------------------------------------
-
 with st.sidebar:
     st.image(
         "https://www.tabnine.com/wp-content/uploads/2023/05/tabnine-logo.svg",
-        width=160,
+        width=150,
     )
     st.markdown("---")
     st.markdown("### Filters")
@@ -370,59 +224,29 @@ with st.sidebar:
         options=sorted(df_scored["Deployment"].unique()),
         default=sorted(df_scored["Deployment"].unique()),
     )
-    thinking_only    = st.checkbox("Thinking models only", value=False)
-    show_upcoming    = st.checkbox("Include upcoming models (not yet in Tabnine)", value=True)
+    thinking_only = st.checkbox("Thinking models only", value=False)
+    show_upcoming = st.checkbox("Include upcoming models", value=True)
 
     st.markdown("---")
     st.markdown("### Compare Models")
-    all_model_names = sorted(df_scored["Model"].tolist())
+    all_names = sorted(df_scored["Model"].tolist())
     compare_models = st.multiselect(
-        "Select models to compare",
-        options=all_model_names,
-        default=all_model_names[:4],
+        "Select models",
+        options=all_names,
+        default=all_names[:4],
     )
 
     st.markdown("---")
     st.caption(
-        "Data sources: [Tabnine Docs](https://docs.tabnine.com/main/welcome/readme/ai-models) · "
+        "Sources: [Tabnine Docs](https://docs.tabnine.com/main/welcome/readme/ai-models) · "
         "[EvalPlus](https://evalplus.github.io/leaderboard.html) · "
         "[SWE-bench](https://www.swebench.com/) · "
         "[LiveCodeBench](https://livecodebench.github.io/)"
     )
 
-    st.markdown("### Data Sources")
-    st.caption("Toggle which sources are visible across all tabs.")
-
-    src_tabnine  = st.checkbox("Tabnine Docs (scores & metadata)", value=True, key="src_tabnine")
-    src_evalplus = st.checkbox("EvalPlus (HumanEval / MBPP)",      value=True, key="src_evalplus")
-    src_swebench = st.checkbox("SWE-bench Verified",               value=True, key="src_swebench")
-    src_livecodebench = st.checkbox("LiveCodeBench",               value=True, key="src_livecodebench")
-    src_gpqa_mmlu     = st.checkbox("Model Cards (GPQA / MMLU)",   value=True, key="src_gpqa_mmlu")
-
-# ---------------------------------------------------------------------------
-# Source-visibility gates — built from sidebar toggles
-# ---------------------------------------------------------------------------
-
-ACTIVE_BENCH_COLS: list[str] = []
-if src_evalplus:
-    ACTIVE_BENCH_COLS += ["HumanEval (%)", "MBPP (%)"]
-if src_swebench:
-    ACTIVE_BENCH_COLS += ["SWE-bench (%)"]
-if src_gpqa_mmlu:
-    ACTIVE_BENCH_COLS += ["GPQA (%)", "MMLU (%)"]
-if src_livecodebench:
-    ACTIVE_BENCH_COLS += ["LiveCodeBench (%)"]
-
-CAP_COLS_ALL = [
-    "Code Completion", "Code Generation", "Reasoning", "Chat",
-    "Debugging", "Refactoring", "Documentation", "Multi-file",
-]
-ACTIVE_CAP_COLS = CAP_COLS_ALL if src_tabnine else []
-
 # ---------------------------------------------------------------------------
 # Apply filters
 # ---------------------------------------------------------------------------
-
 mask = (
     df_scored["Provider"].isin(sel_providers) &
     df_scored["Category"].isin(sel_categories) &
@@ -440,39 +264,36 @@ if df.empty:
     st.stop()
 
 # ---------------------------------------------------------------------------
-# KPI cards
+# KPI strip
 # ---------------------------------------------------------------------------
+k1, k2, k3, k4 = st.columns(4)
 
-col1, col2, col3, col4, col5 = st.columns(5)
-
-with col1:
+with k1:
+    n_avail = int((df["Tabnine Available"] == True).sum())
     st.markdown(
-        f'<div class="metric-card"><h2>{len(df)}</h2><p>Models shown</p></div>',
+        f'<div class="kpi"><h2>{n_avail}</h2><p>Available in Tabnine</p></div>',
         unsafe_allow_html=True,
     )
-with col2:
-    best_overall = df.loc[df["Overall Score"].idxmax(), "Model"]
+with k2:
+    best = df[df["Tabnine Available"] == True]["Overall Score"].idxmax()
+    best_name = df.loc[best, "Model"] if not df[df["Tabnine Available"] == True].empty else "—"
     st.markdown(
-        f'<div class="metric-card"><h2 style="font-size:1.1rem">{best_overall}</h2>'
-        f'<p>Highest overall score</p></div>',
+        f'<div class="kpi"><h2 style="font-size:1rem;padding-top:0.3rem">{best_name}</h2>'
+        f'<p>Top overall score</p></div>',
         unsafe_allow_html=True,
     )
-with col3:
-    n_thinking = (df["Thinking"] == "✓").sum()
+with k3:
+    best_val = df[df["Tabnine Available"] == True]["Efficiency Score"].idxmax()
+    best_val_name = df.loc[best_val, "Model"] if not df[df["Tabnine Available"] == True].empty else "—"
     st.markdown(
-        f'<div class="metric-card"><h2>{n_thinking}</h2><p>Thinking models</p></div>',
+        f'<div class="kpi"><h2 style="font-size:1rem;padding-top:0.3rem">{best_val_name}</h2>'
+        f'<p>Best effectiveness</p></div>',
         unsafe_allow_html=True,
     )
-with col4:
-    n_self = (df["Deployment"] == "Self Hosted").sum()
+with k4:
+    n_self = int((df["Deployment"] == "Self Hosted").sum())
     st.markdown(
-        f'<div class="metric-card"><h2>{n_self}</h2><p>Self-hosted</p></div>',
-        unsafe_allow_html=True,
-    )
-with col5:
-    max_ctx = int(df["Context (K)"].max())
-    st.markdown(
-        f'<div class="metric-card"><h2>{max_ctx:,}K</h2><p>Max context window</p></div>',
+        f'<div class="kpi"><h2>{n_self}</h2><p>Self-hosted models</p></div>',
         unsafe_allow_html=True,
     )
 
@@ -481,288 +302,37 @@ st.markdown("<br>", unsafe_allow_html=True)
 # ---------------------------------------------------------------------------
 # Tabs
 # ---------------------------------------------------------------------------
-
 tab_task, tab_overview, tab_compare, tab_benchmarks, tab_hardware, tab_table = st.tabs([
-    "Task Advisor",
-    "Overview",
-    "Side-by-Side Compare",
-    "Benchmarks",
-    "Hardware",
-    "Full Table",
+    "🎯 Task Advisor",
+    "📊 Overview",
+    "⚖️ Compare",
+    "📈 Benchmarks",
+    "🖥️ Hardware",
+    "📋 Full Table",
 ])
 
 # ============================================================
-# TAB 1 — Overview
-# ============================================================
-with tab_overview:
-
-    st.markdown('<div class="section-header">Overall Model Scores</div>', unsafe_allow_html=True)
-
-    _df_bar = with_source(df.sort_values("Overall Score", ascending=True), "Overall Score")
-    fig_bar = px.bar(
-        _df_bar,
-        x="Overall Score",
-        y="Model",
-        color="Provider",
-        color_discrete_map=PROVIDER_COLORS,
-        orientation="h",
-        text="Overall Score",
-        range_x=[0, 10],
-        height=max(400, len(df) * 38),
-        labels={"Overall Score": "Weighted Average Score (0–10)"},
-        hover_data={"📄 Source": True, "Status": True},
-        pattern_shape="Status",
-        pattern_shape_map={"✅ Available": "", "🔜 Coming Soon": "/"},
-    )
-    fig_bar.update_traces(
-        texttemplate="%{text:.2f}",
-        textposition="outside",
-        marker_opacity=_df_bar["Tabnine Available"].map({True: 1.0, False: 0.45}).tolist(),
-    )
-    fig_bar.update_layout(
-        plot_bgcolor="white",
-        legend_title_text="Provider",
-        xaxis_showgrid=True,
-        yaxis_title=None,
-    )
-    pchart(fig_bar)
-
-    st.markdown('<div class="section-header">Code Generation vs Reasoning</div>', unsafe_allow_html=True)
-
-    _df_scatter = with_source(df, "Code Generation")
-    fig_scatter = px.scatter(
-        _df_scatter,
-        x="Reasoning",
-        y="Code Generation",
-        color="Provider",
-        color_discrete_map=PROVIDER_COLORS,
-        symbol="Status",
-        symbol_map={"✅ Available": "circle", "🔜 Coming Soon": "diamond-open"},
-        size="Context (K)",
-        size_max=28,
-        hover_name="Model",
-        hover_data={"Deployment": True, "Thinking": True, "Context (K)": True,
-                    "Status": True, "📄 Source": True},
-        text="Model",
-        labels={"Code Generation": "Code Generation Score", "Reasoning": "Reasoning Score"},
-    )
-    fig_scatter.update_traces(textposition="top center", textfont_size=9)
-    fig_scatter.update_layout(
-        xaxis_range=[6.5, 10],
-        yaxis_range=[6.5, 10],
-        plot_bgcolor="white",
-        height=500,
-    )
-    pchart(fig_scatter)
-
-    st.markdown('<div class="section-header">Capability Heatmap (All Tasks)</div>', unsafe_allow_html=True)
-
-    if not ACTIVE_CAP_COLS:
-        st.info("Enable **Tabnine Docs** in the Data Sources sidebar to show capability scores.")
-    else:
-        heatmap_data = df.set_index("Model")[ACTIVE_CAP_COLS]
-        fig_heat = px.imshow(
-            heatmap_data,
-            text_auto=".1f",
-            color_continuous_scale="Blues",
-            zmin=5,
-            zmax=10,
-            aspect="auto",
-            height=max(400, len(df) * 36),
-        )
-        fig_heat.update_layout(
-            xaxis_title=None,
-            yaxis_title=None,
-            coloraxis_colorbar_title="Score",
-        )
-        fig_heat.update_traces(
-            hovertemplate=(
-                "<b>%{y}</b><br>%{x}: %{z:.1f}<br>"
-                "<span style='color:#888;font-size:0.85em'>📄 Source: "
-                "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models"
-                "</span><extra></extra>"
-            )
-        )
-        pchart(fig_heat)
-
-
-# ============================================================
-# TAB 2 — Side-by-Side Compare
-# ============================================================
-with tab_compare:
-
-    st.markdown('<div class="section-header">Spider / Radar Comparison</div>', unsafe_allow_html=True)
-
-    df_cmp = df_scored[df_scored["Model"].isin(compare_models)].copy()
-
-    if df_cmp.empty:
-        st.info("Select at least one model in the sidebar to compare.")
-    elif not ACTIVE_CAP_COLS:
-        st.info("Enable **Tabnine Docs** in the Data Sources sidebar to show capability scores.")
-    else:
-        categories = ACTIVE_CAP_COLS + [ACTIVE_CAP_COLS[0]]
-
-        fig_radar = go.Figure()
-        _radar_source = SOURCES.get("Code Completion", _FALLBACK_SOURCE)
-        for _, row in df_cmp.iterrows():
-            values = [row[c] for c in ACTIVE_CAP_COLS] + [row[ACTIVE_CAP_COLS[0]]]
-            provider = row["Provider"]
-            fig_radar.add_trace(go.Scatterpolar(
-                r=values,
-                theta=categories,
-                fill="toself",
-                name=row["Model"],
-                line_color=PROVIDER_COLORS.get(provider, "#888"),
-                opacity=0.65,
-                hovertemplate=(
-                    "<b>" + row["Model"] + "</b><br>"
-                    "%{theta}: %{r:.1f}<br>"
-                    "<span style='color:#888;font-size:0.85em'>"
-                    f"📄 Source: {_radar_source}"
-                    "</span><extra></extra>"
-                ),
-            ))
-        fig_radar.update_layout(
-            polar=dict(radialaxis=dict(visible=True, range=[0, 10])),
-            showlegend=True,
-            legend_title_text="Model",
-            height=550,
-        )
-        pchart(fig_radar)
-
-        st.markdown('<div class="section-header">Capability Scores — Grouped Bar</div>', unsafe_allow_html=True)
-
-        long = with_source(capability_long_df(df_cmp), "Code Completion")
-        fig_grp = px.bar(
-            long,
-            x="Task",
-            y="Score",
-            color="Model",
-            barmode="group",
-            range_y=[0, 10],
-            height=420,
-            hover_data={"📄 Source": True},
-        )
-        fig_grp.update_layout(plot_bgcolor="white", xaxis_title=None)
-        pchart(fig_grp)
-
-        st.markdown('<div class="section-header">Summary Table</div>', unsafe_allow_html=True)
-
-        display_cols = ["Model", "Status", "Provider", "Category", "Deployment", "Context (K)",
-                        "Thinking", "Tool Calling"] + ACTIVE_CAP_COLS + ["Overall Score"]
-        st.caption("Hover any cell to see its data source. Dimmed rows = coming-soon models.")
-        html_table(df_cmp[display_cols + ["Tabnine Available"]].set_index("Model"))
-
-
-# ============================================================
-# TAB 3 — Benchmarks
-# ============================================================
-with tab_benchmarks:
-
-    st.markdown('<div class="section-header">Official Public Benchmarks</div>', unsafe_allow_html=True)
-
-    st.caption(
-        "Scores sourced from: "
-        "[EvalPlus leaderboard](https://evalplus.github.io/leaderboard.html) · "
-        "[SWE-bench leaderboard](https://www.swebench.com/) · "
-        "[LiveCodeBench](https://livecodebench.github.io/) · "
-        "published model cards (GPQA / MMLU). "
-        "All figures are manually curated from their respective published sources."
-    )
-
-    bench_cols = ["HumanEval (%)", "MBPP (%)", "SWE-bench (%)", "GPQA (%)", "MMLU (%)", "LiveCodeBench (%)"]
-    # Filter to only columns whose source is enabled in the sidebar
-    visible_bench_cols = [c for c in bench_cols if c in ACTIVE_BENCH_COLS]
-    df_bench = df[["Model", "Provider"] + bench_cols].copy()
-
-    if not visible_bench_cols:
-        st.info("Enable at least one benchmark source in the **Data Sources** sidebar.")
-        st.stop()
-
-    bench_sel = st.selectbox("Select benchmark", options=visible_bench_cols, index=0)
-    df_b_filtered = df_bench.dropna(subset=[bench_sel]).sort_values(bench_sel, ascending=True)
-
-    if df_b_filtered.empty:
-        st.warning(f"No models have reported {bench_sel} scores yet.")
-    else:
-        _df_bench_bar = with_source(df_b_filtered, bench_sel)
-        fig_bench = px.bar(
-            _df_bench_bar,
-            x=bench_sel,
-            y="Model",
-            color="Provider",
-            color_discrete_map=PROVIDER_COLORS,
-            orientation="h",
-            text=bench_sel,
-            height=max(350, len(df_b_filtered) * 42),
-            labels={bench_sel: f"{bench_sel} Score"},
-            hover_data={"📄 Source": True},
-        )
-        fig_bench.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
-        fig_bench.update_layout(
-            plot_bgcolor="white",
-            yaxis_title=None,
-            xaxis_range=[0, 100],
-        )
-        pchart(fig_bench)
-
-    # Pure Plotly heatmap — no matplotlib dependency
-    st.markdown('<div class="section-header">All Benchmarks — Heatmap</div>', unsafe_allow_html=True)
-
-    bench_heat_df = df_bench.set_index("Model")[visible_bench_cols].astype(float)
-    fig_bench_heat = px.imshow(
-        bench_heat_df,
-        text_auto=".1f",
-        color_continuous_scale="Blues",
-        zmin=0,
-        zmax=100,
-        aspect="auto",
-        height=max(350, len(bench_heat_df) * 38),
-        labels={"color": "Score (%)"},
-    )
-    fig_bench_heat.update_layout(xaxis_title=None, yaxis_title=None)
-    # imshow doesn't support hover_data — embed source per benchmark column in hovertemplate
-    fig_bench_heat.update_traces(
-        hovertemplate=(
-            "<b>%{y}</b><br>%{x}: %{z:.1f}%<br>"
-            "<span style='color:#888;font-size:0.85em'>"
-            "📄 Source: see Benchmark definitions below"
-            "</span><extra></extra>"
-        )
-    )
-    pchart(fig_bench_heat)
-
-    with st.expander("Benchmark definitions"):
-        st.markdown(
-            """
-| Benchmark | What it measures | Source |
-|---|---|---|
-| **HumanEval (%)** | Python function synthesis, pass@1 | [EvalPlus](https://evalplus.github.io/leaderboard.html) |
-| **MBPP (%)** | Mostly Basic Python Problems, pass@1 | [EvalPlus](https://evalplus.github.io/leaderboard.html) |
-| **SWE-bench (%)** | % of real GitHub issues resolved end-to-end | [SWE-bench](https://www.swebench.com/) |
-| **GPQA (%)** | Graduate-level science reasoning | Model cards / papers |
-| **MMLU (%)** | Massive Multitask Language Understanding | Model cards / papers |
-| **LiveCodeBench (%)** | Contamination-free coding, continuously updated | [LiveCodeBench](https://livecodebench.github.io/) |
-            """
-        )
-
-
-# ============================================================
-# TAB 4 — Task Advisor
+# TAB 1 — Task Advisor (home)
 # ============================================================
 with tab_task:
 
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        task_label = st.selectbox("Choose a task", options=list(TASKS.keys()))
-    with col2:
+    # --- Controls row ---
+    ctrl_l, ctrl_r = st.columns([2, 1])
+    with ctrl_l:
+        task_label = st.selectbox(
+            "What do you want to do?",
+            options=list(TASKS.keys()),
+            label_visibility="visible",
+        )
+    with ctrl_r:
         mode = st.radio(
             "Optimise for",
-            options=["⚡ Best performance", "💚 Best efficiency (score / cost)"],
+            options=["💚 Effectiveness (score / cost)", "⚡ Raw performance"],
             index=0,
         )
-    efficient_mode = mode.startswith("💚")
+    perf_mode = mode.startswith("⚡")
 
+    # Map task label → DataFrame column
     col_map = {
         "Inline Code Completion":       "Code Completion",
         "Code Generation":              "Code Generation",
@@ -775,18 +345,19 @@ with tab_task:
     }
     score_col = col_map[task_label]
 
-    _cw = {1: 1.0, 2: 1.6, 3: 2.5}
+    df_task = df[
+        ["Model", "Status", "Tabnine Available", "Provider", "Category",
+         "Deployment", "Thinking", "Context (K)", "Cost Tier", "Cost Label",
+         score_col, "Overall Score"]
+    ].copy()
+    df_task["Task Efficiency"] = (
+        df_task[score_col] / df_task["Cost Tier"].map(_CW)
+    ).round(2)
 
-    df_task = df[["Model", "Status", "Tabnine Available", "Provider", "Category",
-                  "Deployment", "Thinking", "Context (K)", "Cost Tier", "Cost Label",
-                  score_col, "Overall Score"]].copy()
-    df_task["Task Efficiency"] = (df_task[score_col] / df_task["Cost Tier"].map(_cw)).round(2)
-
-    sort_col = "Task Efficiency" if efficient_mode else score_col
-    df_task = df_task.sort_values(sort_col, ascending=False).reset_index(drop=True)
+    sort_col   = score_col if perf_mode else "Task Efficiency"
+    df_task    = df_task.sort_values(sort_col, ascending=False).reset_index(drop=True)
     df_task.index += 1
 
-    # Separate available from upcoming — recommendation only from available models
     df_avail    = df_task[df_task["Tabnine Available"] == True]
     df_upcoming = df_task[df_task["Tabnine Available"] == False]
 
@@ -796,116 +367,111 @@ with tab_task:
         winner    = df_avail.iloc[0]
         runner_up = df_avail.iloc[1] if len(df_avail) > 1 else None
 
-        # Build rationale sentences from the winner's actual data
-        _reasons = []
+        # --- Winner + Runner-up cards side by side ---
+        card_l, card_r = st.columns([1, 1])
 
-        if efficient_mode:
-            _reasons.append(
-                f"It delivers the best <strong>score-to-cost ratio</strong> for "
-                f"<strong>{task_label}</strong> among {len(df_avail)} available models. "
-                f"Raw score: <strong>{winner[score_col]:.1f} / 10</strong> · "
-                f"Cost tier: <strong>{winner['Cost Label']}</strong> · "
-                f"Efficiency score: <strong>{winner['Task Efficiency']:.2f}</strong>."
-            )
-        else:
-            _reasons.append(
-                f"It is the highest-scoring <strong>available</strong> Tabnine model for "
-                f"<strong>{task_label}</strong>, with a score of "
-                f"<strong>{winner[score_col]:.1f} / 10</strong> "
-                f"across {len(df_avail)} available models."
-            )
-
-        if runner_up is not None:
-            if efficient_mode:
-                _gap = winner["Task Efficiency"] - runner_up["Task Efficiency"]
-                _reasons.append(
-                    f"The next-best value option, {runner_up['Model']} "
-                    f"({runner_up['Cost Label']}), has an efficiency score of "
-                    f"{runner_up['Task Efficiency']:.2f} — a gap of {_gap:.2f}."
-                )
+        with card_l:
+            if perf_mode:
+                score_line = f"Score: <strong>{winner[score_col]:.1f} / 10</strong>"
+                why_line   = f"Highest raw score for <em>{task_label}</em> among {len(df_avail)} available models."
             else:
-                _gap = winner[score_col] - runner_up[score_col]
-                _reasons.append(
-                    f"The nearest available alternative, {runner_up['Model']}, scores "
-                    f"{runner_up[score_col]:.1f} — a gap of {_gap:.1f} points."
+                score_line = (
+                    f"Score: <strong>{winner[score_col]:.1f}</strong> · "
+                    f"Cost: <strong>{winner['Cost Label']}</strong> · "
+                    f"Effectiveness: <strong>{winner['Task Efficiency']:.2f}</strong>"
+                )
+                why_line = (
+                    f"Best score-to-cost ratio for <em>{task_label}</em> "
+                    f"across {len(df_avail)} available models."
                 )
 
-        if winner["Thinking"] == "✓":
-            _reasons.append(
-                "Its extended thinking mode lets it reason through multi-step problems "
-                "before committing to an answer, which is especially valuable for this task."
+            extras = []
+            if winner["Thinking"] == "✓":
+                extras.append("Extended thinking mode — handles multi-step reasoning.")
+            ctx_k = winner["Context (K)"]
+            if pd.notna(ctx_k) and float(ctx_k) >= 100:
+                extras.append(f"{int(ctx_k)}K token context window.")
+            if winner["Deployment"] == "Cloud":
+                extras.append("Cloud-hosted — no GPU required.")
+            else:
+                extras.append("Self-hosted — on-premises / air-gapped friendly.")
+
+            extra_html = "".join(f"<p>{e}</p>" for e in extras)
+
+            st.markdown(
+                f"""
+                <div class="winner-card">
+                  <h3>🥇 {winner['Model']}</h3>
+                  <p><strong>{winner['Provider']}</strong> · {winner['Deployment']}</p>
+                  <p>{score_line}</p>
+                  <p style="color:#555;font-size:0.83rem">{why_line}</p>
+                  {extra_html}
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
 
-        ctx_k = winner["Context (K)"]
-        if pd.notna(ctx_k) and float(ctx_k) >= 100:
-            _reasons.append(
-                f"A {int(ctx_k)}K token context window means it can handle large files or "
-                "long conversation histories without losing relevant code."
-            )
+        with card_r:
+            if runner_up is not None:
+                if perf_mode:
+                    ru_score_line = f"Score: <strong>{runner_up[score_col]:.1f} / 10</strong>"
+                    gap_line = f"Gap to winner: {winner[score_col] - runner_up[score_col]:.1f} pts"
+                else:
+                    ru_score_line = (
+                        f"Score: <strong>{runner_up[score_col]:.1f}</strong> · "
+                        f"Cost: <strong>{runner_up['Cost Label']}</strong> · "
+                        f"Effectiveness: <strong>{runner_up['Task Efficiency']:.2f}</strong>"
+                    )
+                    gap_line = (
+                        f"Effectiveness gap to winner: "
+                        f"{winner['Task Efficiency'] - runner_up['Task Efficiency']:.2f}"
+                    )
 
-        if winner["Deployment"] == "Cloud":
-            _reasons.append(
-                "It runs fully in the cloud — no GPU infrastructure required on your end."
-            )
-        else:
-            _reasons.append(
-                "As a self-hosted model, it can be deployed on-premises for data-privacy "
-                "or air-gapped environments."
-            )
+                st.markdown(
+                    f"""
+                    <div class="runner-card">
+                      <h3>🥈 Runner-up: {runner_up['Model']}</h3>
+                      <p><strong>{runner_up['Provider']}</strong> · {runner_up['Deployment']}</p>
+                      <p>{ru_score_line}</p>
+                      <p style="color:#555;font-size:0.83rem">{gap_line}</p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
 
-        _rationale_html = " ".join(f"<p style='margin:0.3rem 0'>{r}</p>" for r in _reasons)
+        # --- Coming-soon alert if any beat the winner ---
+        if not df_upcoming.empty:
+            ahead = df_upcoming[df_upcoming[sort_col] > winner[sort_col]]
+            if not ahead.empty:
+                metric_lbl = "raw score" if perf_mode else "effectiveness"
+                names = ", ".join(
+                    f"{r['Model']} ({r[sort_col]:.2f})" for _, r in ahead.iterrows()
+                )
+                st.info(
+                    f"**Coming soon:** {names} rank higher by {metric_lbl} "
+                    f"but are not yet available in Tabnine."
+                )
 
-        st.markdown(
-            f"""
-            <div style="background:#EFF6FF;border:1px solid {TABNINE_BLUE};border-radius:10px;
-                        padding:1.1rem 1.5rem;margin-bottom:0.8rem;">
-              <div style="font-size:1.15rem;font-weight:700;margin-bottom:0.5rem;">
-                {winner['Model']}
-                <span style="font-size:0.85rem;font-weight:400;color:#555;">
-                  &nbsp;·&nbsp;{winner['Provider']}&nbsp;·&nbsp;{winner['Deployment']}
-                </span>
-              </div>
-              {_rationale_html}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+    # --- Bar chart ---
+    bar_x     = sort_col
+    bar_label = (f"{task_label} Score (0–10)" if perf_mode
+                 else "Effectiveness (score ÷ cost weight)")
+    bar_title = (f"All models — {task_label} score"
+                 if perf_mode else f"All models — {task_label} effectiveness")
 
-        # Surface any upcoming models that beat the available winner on the active metric
-        _ahead = df_upcoming[df_upcoming[sort_col] > winner[sort_col]]
-        if not _ahead.empty:
-            _metric_lbl = "efficiency score" if efficient_mode else "score"
-            _names = ", ".join(
-                f"{r['Model']} ({r[sort_col]:.2f})"
-                for _, r in _ahead.iterrows()
-            )
-            st.info(
-                f"**Coming soon — not yet in Tabnine:** {_names} "
-                f"rank higher by {_metric_lbl} but are not currently available. "
-                f"They appear in the chart below for reference."
-            )
-
-    _bar_x     = sort_col
-    _bar_label = ("Task Efficiency (score / cost weight)"
-                  if efficient_mode else f"{task_label} Score")
-    _bar_title = (f"All models ranked by efficiency ({task_label})"
-                  if efficient_mode else f"All models ranked by {task_label} score")
-    _bar_range = None if efficient_mode else [0, 10]
-
-    _df_task_bar = with_source(df_task, score_col)
     fig_task = px.bar(
-        _df_task_bar,
-        x=_bar_x,
+        df_task,
+        x=bar_x,
         y="Model",
         color="Provider",
         color_discrete_map=PROVIDER_COLORS,
         orientation="h",
-        text=_bar_x,
-        range_x=_bar_range,
-        height=max(420, len(df_task) * 36),
-        labels={_bar_x: _bar_label},
-        title=_bar_title,
-        hover_data={"📄 Source": True, "Status": True, "Cost Label": True},
+        text=bar_x,
+        range_x=None if not perf_mode else [0, 10],
+        height=max(420, len(df_task) * 34),
+        labels={bar_x: bar_label},
+        title=bar_title,
+        hover_data={"Status": True, "Cost Label": True},
         pattern_shape="Status",
         pattern_shape_map={"✅ Available": "", "🔜 Coming Soon": "/"},
     )
@@ -913,26 +479,183 @@ with tab_task:
     fig_task.update_layout(plot_bgcolor="white", yaxis_title=None)
     pchart(fig_task)
 
-    st.caption("Hover any cell to see its data source. Dimmed rows = coming-soon models.")
+    # --- Lean table ---
+    display_cols = ["Model", "Status", "Provider", "Deployment",
+                    "Thinking", "Context (K)", "Cost Label", score_col, "Task Efficiency"]
     html_table(
-        df_task[["Model", "Status", "Provider", "Deployment", "Thinking", "Context (K)",
-                 score_col, "Tabnine Available"]].set_index("Model")
+        df_task[display_cols + ["Tabnine Available"]].set_index("Model")
     )
 
-    st.markdown('<div class="section-header">Cloud vs Self-Hosted for this task</div>', unsafe_allow_html=True)
 
-    _df_dep = with_source(df[[score_col, "Deployment"]], score_col)
-    fig_dep = px.box(
-        _df_dep,
-        x="Deployment",
-        y=score_col,
-        color="Deployment",
-        points="all",
-        labels={score_col: f"{task_label} Score"},
-        hover_data={"📄 Source": True},
+# ============================================================
+# TAB 2 — Overview
+# ============================================================
+with tab_overview:
+
+    st.markdown('<div class="section-hdr">Overall Model Scores</div>', unsafe_allow_html=True)
+
+    df_bar = df.sort_values("Overall Score", ascending=True).copy()
+    fig_bar = px.bar(
+        df_bar,
+        x="Overall Score",
+        y="Model",
+        color="Provider",
+        color_discrete_map=PROVIDER_COLORS,
+        orientation="h",
+        text="Overall Score",
+        range_x=[0, 10],
+        height=max(400, len(df) * 36),
+        labels={"Overall Score": "Avg Capability Score (0–10)"},
+        hover_data={"Status": True, "Cost Label": True},
+        pattern_shape="Status",
+        pattern_shape_map={"✅ Available": "", "🔜 Coming Soon": "/"},
     )
-    fig_dep.update_layout(showlegend=False, plot_bgcolor="white", height=350)
-    pchart(fig_dep)
+    fig_bar.update_traces(
+        texttemplate="%{text:.2f}",
+        textposition="outside",
+        marker_opacity=df_bar["Tabnine Available"].map({True: 1.0, False: 0.4}).tolist(),
+    )
+    fig_bar.update_layout(plot_bgcolor="white", yaxis_title=None)
+    pchart(fig_bar)
+
+    st.markdown('<div class="section-hdr">Effectiveness vs Performance</div>', unsafe_allow_html=True)
+    st.caption(
+        "X-axis = Overall Score (raw performance). Y-axis = Efficiency Score (score ÷ cost weight). "
+        "Models in the top-right corner are both high-performing and cost-effective."
+    )
+
+    fig_eff = px.scatter(
+        df[df["Tabnine Available"] == True],
+        x="Overall Score",
+        y="Efficiency Score",
+        color="Provider",
+        color_discrete_map=PROVIDER_COLORS,
+        size="Context (K)",
+        size_max=28,
+        hover_name="Model",
+        text="Model",
+        hover_data={"Deployment": True, "Cost Label": True, "Thinking": True},
+        labels={"Overall Score": "Performance Score", "Efficiency Score": "Effectiveness Score"},
+    )
+    fig_eff.update_traces(textposition="top center", textfont_size=9)
+    fig_eff.update_layout(plot_bgcolor="white", height=480)
+    pchart(fig_eff)
+
+
+# ============================================================
+# TAB 3 — Compare
+# ============================================================
+with tab_compare:
+
+    df_cmp = df_scored[df_scored["Model"].isin(compare_models)].copy()
+
+    if df_cmp.empty:
+        st.info("Select models in the sidebar to compare.")
+    else:
+        CAP_COLS = [
+            "Code Completion", "Code Generation", "Reasoning", "Chat",
+            "Debugging", "Refactoring", "Documentation", "Multi-file",
+        ]
+
+        st.markdown('<div class="section-hdr">Capability Radar</div>', unsafe_allow_html=True)
+
+        fig_radar = go.Figure()
+        cats = CAP_COLS + [CAP_COLS[0]]
+        for _, row in df_cmp.iterrows():
+            vals = [row[c] for c in CAP_COLS] + [row[CAP_COLS[0]]]
+            fig_radar.add_trace(go.Scatterpolar(
+                r=vals,
+                theta=cats,
+                fill="toself",
+                name=row["Model"],
+                line_color=PROVIDER_COLORS.get(row["Provider"], "#888"),
+                opacity=0.65,
+                hovertemplate="<b>" + row["Model"] + "</b><br>%{theta}: %{r:.1f}<extra></extra>",
+            ))
+        fig_radar.update_layout(
+            polar=dict(radialaxis=dict(visible=True, range=[0, 10])),
+            showlegend=True,
+            legend_title_text="Model",
+            height=520,
+        )
+        pchart(fig_radar)
+
+        st.markdown('<div class="section-hdr">Score Breakdown</div>', unsafe_allow_html=True)
+
+        long = capability_long_df(df_cmp)
+        fig_grp = px.bar(
+            long,
+            x="Task",
+            y="Score",
+            color="Model",
+            barmode="group",
+            range_y=[0, 10],
+            height=400,
+        )
+        fig_grp.update_layout(plot_bgcolor="white", xaxis_title=None)
+        pchart(fig_grp)
+
+        st.markdown('<div class="section-hdr">Summary</div>', unsafe_allow_html=True)
+
+        show_cols = (
+            ["Model", "Status", "Provider", "Deployment", "Cost Label",
+             "Context (K)", "Thinking"] + CAP_COLS + ["Overall Score", "Efficiency Score"]
+        )
+        html_table(df_cmp[show_cols + ["Tabnine Available"]].set_index("Model"))
+
+
+# ============================================================
+# TAB 4 — Benchmarks
+# ============================================================
+with tab_benchmarks:
+
+    st.markdown('<div class="section-hdr">Official Public Benchmarks</div>', unsafe_allow_html=True)
+    st.caption(
+        "Sources: [EvalPlus](https://evalplus.github.io/leaderboard.html) · "
+        "[SWE-bench](https://www.swebench.com/) · "
+        "[LiveCodeBench](https://livecodebench.github.io/) · "
+        "Published model cards (GPQA / MMLU). Scores are manually curated."
+    )
+
+    bench_cols = ["HumanEval (%)", "MBPP (%)", "SWE-bench (%)", "GPQA (%)", "MMLU (%)", "LiveCodeBench (%)"]
+    bench_sel  = st.selectbox("Select benchmark", options=bench_cols, index=0)
+
+    df_bench = df[["Model", "Provider", "Status", "Tabnine Available"] + bench_cols].copy()
+    df_b     = df_bench.dropna(subset=[bench_sel]).sort_values(bench_sel, ascending=True)
+
+    if df_b.empty:
+        st.warning(f"No models have a reported {bench_sel} score.")
+    else:
+        fig_bench = px.bar(
+            df_b,
+            x=bench_sel,
+            y="Model",
+            color="Provider",
+            color_discrete_map=PROVIDER_COLORS,
+            orientation="h",
+            text=bench_sel,
+            height=max(320, len(df_b) * 40),
+            range_x=[0, 100],
+            labels={bench_sel: f"{bench_sel}"},
+            hover_data={"Status": True},
+            pattern_shape="Status",
+            pattern_shape_map={"✅ Available": "", "🔜 Coming Soon": "/"},
+        )
+        fig_bench.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
+        fig_bench.update_layout(plot_bgcolor="white", yaxis_title=None)
+        pchart(fig_bench)
+
+    with st.expander("Benchmark definitions"):
+        st.markdown(
+            "| Benchmark | What it measures | Source |\n"
+            "|---|---|---|\n"
+            "| **HumanEval (%)** | Python function synthesis, pass@1 | [EvalPlus](https://evalplus.github.io/leaderboard.html) |\n"
+            "| **MBPP (%)** | Mostly Basic Python Problems, pass@1 | [EvalPlus](https://evalplus.github.io/leaderboard.html) |\n"
+            "| **SWE-bench (%)** | Real GitHub issues resolved end-to-end | [SWE-bench](https://www.swebench.com/) |\n"
+            "| **GPQA (%)** | Graduate-level science reasoning | Model cards / papers |\n"
+            "| **MMLU (%)** | Massive Multitask Language Understanding | Model cards / papers |\n"
+            "| **LiveCodeBench (%)** | Contamination-free coding benchmark | [LiveCodeBench](https://livecodebench.github.io/) |\n"
+        )
 
 
 # ============================================================
@@ -940,101 +663,53 @@ with tab_task:
 # ============================================================
 with tab_hardware:
 
-    st.markdown('<div class="section-header">Self-Hosted Hardware Requirements</div>', unsafe_allow_html=True)
-
     df_hw = df[df["Deployment"] == "Self Hosted"].copy()
 
     if df_hw.empty:
-        st.info("No self-hosted models match current filters.")
+        st.info("No self-hosted models match the current filters.")
     else:
-        col_a, col_b = st.columns(2)
+        st.markdown('<div class="section-hdr">Self-Hosted Hardware Requirements</div>', unsafe_allow_html=True)
 
-        with col_a:
-            _df_vram = with_source(
-                df_hw.dropna(subset=["VRAM (GB)"]).sort_values("VRAM (GB)", ascending=True),
-                "VRAM (GB)",
-            )
+        hw_left, hw_right = st.columns(2)
+
+        with hw_left:
+            df_vram = df_hw.dropna(subset=["VRAM (GB)"]).sort_values("VRAM (GB)", ascending=True)
             fig_vram = px.bar(
-                _df_vram,
+                df_vram,
                 x="VRAM (GB)",
                 y="Model",
                 color="Provider",
                 color_discrete_map=PROVIDER_COLORS,
                 orientation="h",
                 text="VRAM (GB)",
-                height=350,
-                title="Minimum GPU VRAM (GB)",
-                hover_data={"📄 Source": True},
+                height=max(300, len(df_vram) * 40),
+                title="Min GPU VRAM (GB)",
             )
             fig_vram.update_traces(texttemplate="%{text} GB", textposition="outside")
             fig_vram.update_layout(plot_bgcolor="white", yaxis_title=None)
             pchart(fig_vram)
 
-        with col_b:
-            _df_ctx = with_source(df_hw.sort_values("Context (K)", ascending=True), "Context (K)")
+        with hw_right:
+            df_ctx = df_hw.sort_values("Context (K)", ascending=True)
             fig_ctx = px.bar(
-                _df_ctx,
+                df_ctx,
                 x="Context (K)",
                 y="Model",
                 color="Provider",
                 color_discrete_map=PROVIDER_COLORS,
                 orientation="h",
                 text="Context (K)",
-                height=350,
+                height=max(300, len(df_ctx) * 40),
                 title="Context Window (K tokens)",
-                hover_data={"📄 Source": True},
             )
             fig_ctx.update_traces(texttemplate="%{text:.0f}K", textposition="outside")
             fig_ctx.update_layout(plot_bgcolor="white", yaxis_title=None)
             pchart(fig_ctx)
 
-        st.markdown('<div class="section-header">Deployment Specs</div>', unsafe_allow_html=True)
-
+        st.markdown('<div class="section-hdr">Specs Table</div>', unsafe_allow_html=True)
         hw_cols = ["Model", "Status", "Provider", "GPU (min)", "VRAM (GB)",
-                   "Context (K)", "Thinking", "Tool Calling", "License"]
-        st.caption("Hover any cell to see its data source. Dimmed rows = coming-soon models.")
+                   "Context (K)", "Thinking", "License"]
         html_table(df_hw[hw_cols + ["Tabnine Available"]].set_index("Model"))
-
-        st.markdown('<div class="section-header">VRAM vs Context Window (self-hosted)</div>', unsafe_allow_html=True)
-
-        df_hw_clean = df_hw.dropna(subset=["VRAM (GB)"])
-        _df_bubble = with_source(df_hw_clean, "VRAM (GB)")
-        fig_bubble = px.scatter(
-            _df_bubble,
-            x="Context (K)",
-            y="VRAM (GB)",
-            color="Provider",
-            color_discrete_map=PROVIDER_COLORS,
-            size="Overall Score",
-            size_max=40,
-            text="Model",
-            hover_data={"GPU (min)": True, "📄 Source": True},
-            labels={"VRAM (GB)": "Min VRAM (GB)", "Context (K)": "Context Window (K tokens)"},
-        )
-        fig_bubble.update_traces(textposition="top center", textfont_size=9)
-        fig_bubble.update_layout(plot_bgcolor="white", height=420)
-        pchart(fig_bubble)
-
-    st.markdown("---")
-    st.markdown('<div class="section-header">Cloud Models — Context Window</div>', unsafe_allow_html=True)
-
-    df_cloud = df[df["Deployment"] != "Self Hosted"].copy()
-    _df_ctx_cloud = with_source(df_cloud.sort_values("Context (K)", ascending=True), "Context (K)")
-    fig_ctx_cloud = px.bar(
-        _df_ctx_cloud,
-        x="Context (K)",
-        y="Model",
-        color="Provider",
-        color_discrete_map=PROVIDER_COLORS,
-        orientation="h",
-        text="Context (K)",
-        height=max(300, len(df_cloud) * 38),
-        title="Cloud Model Context Windows",
-        hover_data={"📄 Source": True},
-    )
-    fig_ctx_cloud.update_traces(texttemplate="%{text:.0f}K", textposition="outside")
-    fig_ctx_cloud.update_layout(plot_bgcolor="white", yaxis_title=None)
-    pchart(fig_ctx_cloud)
 
 
 # ============================================================
@@ -1042,28 +717,26 @@ with tab_hardware:
 # ============================================================
 with tab_table:
 
-    st.markdown('<div class="section-header">Complete Model Registry</div>', unsafe_allow_html=True)
-
-    _meta_cols  = ["Model", "Status", "Provider", "Family", "Category", "Deployment", "Plan",
-                   "Context (K)", "Thinking", "Tool Calling"]
-    _cap_cols   = (ACTIVE_CAP_COLS + ["Overall Score"]) if ACTIVE_CAP_COLS else []
-    _bench_cols = [c for c in ["HumanEval (%)", "MBPP (%)", "SWE-bench (%)",
-                               "GPQA (%)", "MMLU (%)", "LiveCodeBench (%)"]
-                   if c in ACTIVE_BENCH_COLS]
-    _hw_cols    = ["GPU (min)", "VRAM (GB)", "License"]
-    table_cols  = _meta_cols + _cap_cols + _bench_cols + _hw_cols
-
-    # Legend
+    st.markdown('<div class="section-hdr">Complete Model Registry</div>', unsafe_allow_html=True)
     st.markdown(
-        '<span class="avail-yes">✅ Available</span> &nbsp; model is live in Tabnine today &nbsp;&nbsp; '
-        '<span class="avail-soon">🔜 Coming Soon</span> &nbsp; tracked frontier model, not yet in Tabnine',
+        '<span class="badge-avail">✅ Available</span>&nbsp; live in Tabnine today &nbsp;&nbsp;'
+        '<span class="badge-soon">🔜 Coming Soon</span>&nbsp; tracked but not yet in Tabnine',
         unsafe_allow_html=True,
     )
-    st.caption("Hover any cell to see its data source. Dimmed rows = coming-soon models.")
 
-    search = st.text_input("Search model name or provider", "")
-    # Include Tabnine Available as a sentinel column for row styling (hidden from display)
-    df_tbl = df[table_cols + ["Tabnine Available"]].copy()
+    search = st.text_input("Search by model name or provider", "")
+
+    tbl_cols = [
+        "Model", "Status", "Provider", "Family", "Category", "Deployment", "Plan",
+        "Context (K)", "Thinking", "Tool Calling", "Cost Label",
+        "Code Completion", "Code Generation", "Reasoning", "Chat",
+        "Debugging", "Refactoring", "Documentation", "Multi-file",
+        "Overall Score", "Efficiency Score",
+        "HumanEval (%)", "MBPP (%)", "SWE-bench (%)", "GPQA (%)", "MMLU (%)", "LiveCodeBench (%)",
+        "GPU (min)", "VRAM (GB)", "License",
+    ]
+
+    df_tbl = df[tbl_cols + ["Tabnine Available"]].copy()
     if search:
         mask_s = (
             df_tbl["Model"].str.contains(search, case=False, na=False) |
@@ -1073,10 +746,9 @@ with tab_table:
 
     html_table(df_tbl.set_index("Model"))
 
-    csv = df_tbl.to_csv(index=False).encode()
     st.download_button(
         label="Download as CSV",
-        data=csv,
+        data=df_tbl.to_csv(index=False).encode(),
         file_name="tabnine_models.csv",
         mime="text/csv",
     )
@@ -1084,18 +756,14 @@ with tab_table:
 # ---------------------------------------------------------------------------
 # Footer
 # ---------------------------------------------------------------------------
-
 st.markdown("---")
 st.markdown(
-    f"""
-    <div style="text-align:center;color:#888;font-size:0.78rem;padding:0.5rem 0 1rem;">
-      Built with Streamlit · Data from
-      <a href="https://docs.tabnine.com/main/welcome/readme/ai-models" target="_blank">Tabnine Docs</a> ·
-      <a href="https://evalplus.github.io/leaderboard.html" target="_blank">EvalPlus</a> ·
-      <a href="https://www.swebench.com/" target="_blank">SWE-bench</a> ·
-      <a href="https://livecodebench.github.io/" target="_blank">LiveCodeBench</a>
-      &nbsp;|&nbsp; Benchmark scores are refreshed every hour.
-    </div>
-    """,
+    '<div style="text-align:center;color:#888;font-size:0.78rem;padding:0.4rem 0 1rem;">'
+    'Built with Streamlit · '
+    '<a href="https://docs.tabnine.com/main/welcome/readme/ai-models" target="_blank">Tabnine Docs</a> · '
+    '<a href="https://evalplus.github.io/leaderboard.html" target="_blank">EvalPlus</a> · '
+    '<a href="https://www.swebench.com/" target="_blank">SWE-bench</a> · '
+    '<a href="https://livecodebench.github.io/" target="_blank">LiveCodeBench</a>'
+    '</div>',
     unsafe_allow_html=True,
 )
