@@ -74,12 +74,12 @@ def build_master_df(
             "Documentation":    m.score_documentation,
             "Multi-file":       m.score_multifile,
             # benchmarks (static seed)
-            "HumanEval (%)":    m.bench_humaneval,
-            "MBPP (%)":         m.bench_mbpp,
-            "SWE-bench (%)":    m.bench_swebench,
-            "GPQA (%)":         m.bench_gpqa,
-            "MMLU (%)":         m.bench_mmlu,
-            "LiveCodeBench (%)": None,
+            "HumanEval (%)":     m.bench_humaneval,
+            "MBPP (%)":          m.bench_mbpp,
+            "SWE-bench (%)":     m.bench_swebench,
+            "GPQA (%)":          m.bench_gpqa,
+            "MMLU (%)":          m.bench_mmlu,
+            "LiveCodeBench (%)": m.bench_livecodebench,
         }
 
         # Overlay live scores where available

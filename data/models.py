@@ -1,30 +1,16 @@
-"""
-Static model registry extracted from Tabnine official documentation.
-Sources:
-  - https://docs.tabnine.com/main/welcome/readme/ai-models
-  - https://docs.tabnine.com/main/administering-tabnine/managing-your-team/settings/models-settings
-  - https://docs.tabnine.com/main/welcome/readme/system-requirements/system-requirements
-"""
-
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
-
-# ---------------------------------------------------------------------------
-# Data model
-# ---------------------------------------------------------------------------
 
 @dataclass
 class TabnineModel:
     id: str
     display_name: str
     provider: str
-    family: str                  # e.g. "GPT", "Claude", "Gemini", "Mistral", "Tabnine"
-    category: str                # "thinking" | "coding" | "general"
-    deployment: str              # "cloud" | "self-hosted" | "both"
-    plan: str                    # "Pro" | "Enterprise" | "SaaS" | "Private"
-
-    # Capabilities (0-10 scale, curated from public benchmarks + docs)
+    family: str
+    category: str
+    deployment: str
+    plan: str
     score_code_completion: float
     score_code_generation: float
     score_reasoning: float
@@ -32,623 +18,87 @@ class TabnineModel:
     score_debugging: float
     score_refactoring: float
     score_documentation: float
-    score_multifile: float       # multi-file / agentic awareness
-
-    # Official benchmark scores (None = not publicly reported for this model)
-    bench_humaneval: Optional[float]    # pass@1 %
-    bench_mbpp: Optional[float]         # pass@1 %
-    bench_swebench: Optional[float]     # % resolved
-    bench_gpqa: Optional[float]         # % (graduate-level reasoning)
-    bench_mmlu: Optional[float]         # % (general knowledge)
-
-    # Technical
-    context_window: int          # tokens
-    thinking_mode: bool          # supports extended thinking / reasoning tokens
+    score_multifile: float
+    bench_humaneval: Optional[float]
+    bench_mbpp: Optional[float]
+    bench_swebench: Optional[float]
+    bench_gpqa: Optional[float]
+    bench_mmlu: Optional[float]
+    bench_livecodebench: Optional[float]
+    context_window: int
+    thinking_mode: bool
     tool_calling: bool
     streaming: bool
-
-    # Self-hosted hardware (None = cloud-only)
     gpu_min: Optional[str]
     gpu_recommended: Optional[str]
     tensor_parallel: Optional[int]
     vram_gb: Optional[int]
-
-    # Misc
     license_note: str
     doc_url: str
-    tags: list[str] = field(default_factory=list)
+    tags: list = field(default_factory=list)
 
+_D = "https://docs.tabnine.com/main/welcome/readme/ai-models"
+_H = "https://docs.tabnine.com/main/welcome/readme/system-requirements/system-requirements"
 
-# ---------------------------------------------------------------------------
-# Registry
-# ---------------------------------------------------------------------------
+def _c(id,name,prov,fam,cat,dep,plan,cc,cg,rs,ch,db,rf,dc,mf,he,mb,sw,gp,mm,lc,ctx,th,tc,st,gm,gr,tp,vr,lic,url,tags):
+    return TabnineModel(id,name,prov,fam,cat,dep,plan,cc,cg,rs,ch,db,rf,dc,mf,he,mb,sw,gp,mm,lc,ctx,th,tc,st,gm,gr,tp,vr,lic,url,tags)
 
-MODELS: list[TabnineModel] = [
+N=None
+CLD="Cloud"
+SH="Self Hosted"
+PRO="Pro / Enterprise"
+ENT="Enterprise (Private Mode)"
 
-    # ── OpenAI ──────────────────────────────────────────────────────────────
-
-    TabnineModel(
-        id="gpt-4.1",
-        display_name="GPT-4.1",
-        provider="OpenAI",
-        family="GPT",
-        category="general",
-        deployment="cloud",
-        plan="Pro / Enterprise",
-        score_code_completion=9.0,
-        score_code_generation=9.2,
-        score_reasoning=8.8,
-        score_chat=9.0,
-        score_debugging=9.0,
-        score_refactoring=8.9,
-        score_documentation=9.1,
-        score_multifile=8.7,
-        bench_humaneval=90.2,
-        bench_mbpp=87.5,
-        bench_swebench=54.6,
-        bench_gpqa=None,
-        bench_mmlu=86.4,
-        context_window=1_000_000,
-        thinking_mode=False,
-        tool_calling=True,
-        streaming=True,
-        gpu_min=None,
-        gpu_recommended=None,
-        tensor_parallel=None,
-        vram_gb=None,
-        license_note="Accessed via OpenAI API",
-        doc_url="https://docs.tabnine.com/main/welcome/readme/ai-models",
-        tags=["flagship", "multimodal", "large-context"],
-    ),
-
-    TabnineModel(
-        id="o3",
-        display_name="o3",
-        provider="OpenAI",
-        family="GPT",
-        category="thinking",
-        deployment="cloud",
-        plan="Pro / Enterprise",
-        score_code_completion=9.3,
-        score_code_generation=9.5,
-        score_reasoning=9.8,
-        score_chat=9.0,
-        score_debugging=9.6,
-        score_refactoring=9.2,
-        score_documentation=8.8,
-        score_multifile=9.4,
-        bench_humaneval=96.7,
-        bench_mbpp=None,
-        bench_swebench=71.7,
-        bench_gpqa=87.7,
-        bench_mmlu=91.8,
-        context_window=200_000,
-        thinking_mode=True,
-        tool_calling=True,
-        streaming=True,
-        gpu_min=None,
-        gpu_recommended=None,
-        tensor_parallel=None,
-        vram_gb=None,
-        license_note="Accessed via OpenAI API",
-        doc_url="https://docs.tabnine.com/main/welcome/readme/ai-models",
-        tags=["thinking", "flagship", "highest-reasoning"],
-    ),
-
-    TabnineModel(
-        id="o4-mini",
-        display_name="o4-mini",
-        provider="OpenAI",
-        family="GPT",
-        category="thinking",
-        deployment="cloud",
-        plan="Pro / Enterprise",
-        score_code_completion=9.0,
-        score_code_generation=9.1,
-        score_reasoning=9.4,
-        score_chat=8.6,
-        score_debugging=9.2,
-        score_refactoring=9.0,
-        score_documentation=8.5,
-        score_multifile=9.0,
-        bench_humaneval=93.4,
-        bench_mbpp=None,
-        bench_swebench=68.1,
-        bench_gpqa=81.4,
-        bench_mmlu=88.9,
-        context_window=200_000,
-        thinking_mode=True,
-        tool_calling=True,
-        streaming=True,
-        gpu_min=None,
-        gpu_recommended=None,
-        tensor_parallel=None,
-        vram_gb=None,
-        license_note="Accessed via OpenAI API",
-        doc_url="https://docs.tabnine.com/main/welcome/readme/ai-models",
-        tags=["thinking", "efficient", "cost-effective"],
-    ),
-
-    # ── Anthropic ───────────────────────────────────────────────────────────
-
-    TabnineModel(
-        id="claude-sonnet-4",
-        display_name="Claude Sonnet 4",
-        provider="Anthropic",
-        family="Claude",
-        category="thinking",
-        deployment="cloud",
-        plan="Pro / Enterprise",
-        score_code_completion=9.2,
-        score_code_generation=9.4,
-        score_reasoning=9.5,
-        score_chat=9.3,
-        score_debugging=9.4,
-        score_refactoring=9.3,
-        score_documentation=9.2,
-        score_multifile=9.5,
-        bench_humaneval=92.1,
-        bench_mbpp=None,
-        bench_swebench=72.7,
-        bench_gpqa=84.8,
-        bench_mmlu=90.1,
-        context_window=200_000,
-        thinking_mode=True,
-        tool_calling=True,
-        streaming=True,
-        gpu_min=None,
-        gpu_recommended=None,
-        tensor_parallel=None,
-        vram_gb=None,
-        license_note="Accessed via Anthropic API",
-        doc_url="https://docs.tabnine.com/main/welcome/readme/ai-models",
-        tags=["thinking", "top-coding", "agentic"],
-    ),
-
-    TabnineModel(
-        id="claude-sonnet-3.7",
-        display_name="Claude Sonnet 3.7",
-        provider="Anthropic",
-        family="Claude",
-        category="thinking",
-        deployment="cloud",
-        plan="Pro / Enterprise",
-        score_code_completion=9.0,
-        score_code_generation=9.2,
-        score_reasoning=9.3,
-        score_chat=9.1,
-        score_debugging=9.2,
-        score_refactoring=9.1,
-        score_documentation=9.0,
-        score_multifile=9.2,
-        bench_humaneval=90.0,
-        bench_mbpp=None,
-        bench_swebench=70.3,
-        bench_gpqa=84.0,
-        bench_mmlu=89.5,
-        context_window=200_000,
-        thinking_mode=True,
-        tool_calling=True,
-        streaming=True,
-        gpu_min=None,
-        gpu_recommended=None,
-        tensor_parallel=None,
-        vram_gb=None,
-        license_note="Accessed via Anthropic API",
-        doc_url="https://docs.tabnine.com/main/welcome/readme/ai-models",
-        tags=["thinking", "strong-reasoning"],
-    ),
-
-    TabnineModel(
-        id="claude-sonnet-3.5",
-        display_name="Claude Sonnet 3.5",
-        provider="Anthropic",
-        family="Claude",
-        category="general",
-        deployment="cloud",
-        plan="Pro / Enterprise",
-        score_code_completion=8.8,
-        score_code_generation=9.0,
-        score_reasoning=8.7,
-        score_chat=9.0,
-        score_debugging=8.9,
-        score_refactoring=9.0,
-        score_documentation=9.1,
-        score_multifile=8.8,
-        bench_humaneval=92.0,
-        bench_mbpp=None,
-        bench_swebench=49.0,
-        bench_gpqa=65.0,
-        bench_mmlu=88.7,
-        context_window=200_000,
-        thinking_mode=False,
-        tool_calling=True,
-        streaming=True,
-        gpu_min=None,
-        gpu_recommended=None,
-        tensor_parallel=None,
-        vram_gb=None,
-        license_note="Accessed via Anthropic API",
-        doc_url="https://docs.tabnine.com/main/welcome/readme/ai-models",
-        tags=["proven", "balanced", "popular"],
-    ),
-
-    # ── Google ──────────────────────────────────────────────────────────────
-
-    TabnineModel(
-        id="gemini-2.5-pro",
-        display_name="Gemini 2.5 Pro",
-        provider="Google",
-        family="Gemini",
-        category="thinking",
-        deployment="cloud",
-        plan="Pro / Enterprise",
-        score_code_completion=9.1,
-        score_code_generation=9.3,
-        score_reasoning=9.6,
-        score_chat=9.2,
-        score_debugging=9.3,
-        score_refactoring=9.1,
-        score_documentation=9.0,
-        score_multifile=9.4,
-        bench_humaneval=None,
-        bench_mbpp=None,
-        bench_swebench=63.8,
-        bench_gpqa=84.0,
-        bench_mmlu=89.0,
-        context_window=1_000_000,
-        thinking_mode=True,
-        tool_calling=True,
-        streaming=True,
-        gpu_min=None,
-        gpu_recommended=None,
-        tensor_parallel=None,
-        vram_gb=None,
-        license_note="Accessed via Google API",
-        doc_url="https://docs.tabnine.com/main/welcome/readme/ai-models",
-        tags=["thinking", "huge-context", "multimodal"],
-    ),
-
-    TabnineModel(
-        id="gemini-2.5-flash",
-        display_name="Gemini 2.5 Flash",
-        provider="Google",
-        family="Gemini",
-        category="thinking",
-        deployment="cloud",
-        plan="Pro / Enterprise",
-        score_code_completion=8.8,
-        score_code_generation=8.9,
-        score_reasoning=9.1,
-        score_chat=8.8,
-        score_debugging=8.9,
-        score_refactoring=8.7,
-        score_documentation=8.7,
-        score_multifile=8.9,
-        bench_humaneval=None,
-        bench_mbpp=None,
-        bench_swebench=56.1,
-        bench_gpqa=80.2,
-        bench_mmlu=88.0,
-        context_window=1_000_000,
-        thinking_mode=True,
-        tool_calling=True,
-        streaming=True,
-        gpu_min=None,
-        gpu_recommended=None,
-        tensor_parallel=None,
-        vram_gb=None,
-        license_note="Accessed via Google API",
-        doc_url="https://docs.tabnine.com/main/welcome/readme/ai-models",
-        tags=["thinking", "fast", "huge-context", "efficient"],
-    ),
-
-    # ── xAI ─────────────────────────────────────────────────────────────────
-
-    TabnineModel(
-        id="grok-3",
-        display_name="Grok 3",
-        provider="xAI",
-        family="Grok",
-        category="thinking",
-        deployment="cloud",
-        plan="Pro / Enterprise",
-        score_code_completion=8.9,
-        score_code_generation=9.0,
-        score_reasoning=9.4,
-        score_chat=9.0,
-        score_debugging=9.1,
-        score_refactoring=8.9,
-        score_documentation=8.8,
-        score_multifile=9.0,
-        bench_humaneval=None,
-        bench_mbpp=None,
-        bench_swebench=None,
-        bench_gpqa=84.6,
-        bench_mmlu=92.7,
-        context_window=131_072,
-        thinking_mode=True,
-        tool_calling=True,
-        streaming=True,
-        gpu_min=None,
-        gpu_recommended=None,
-        tensor_parallel=None,
-        vram_gb=None,
-        license_note="Accessed via xAI API",
-        doc_url="https://docs.tabnine.com/main/welcome/readme/ai-models",
-        tags=["thinking", "frontier"],
-    ),
-
-    TabnineModel(
-        id="grok-3-mini",
-        display_name="Grok 3 Mini",
-        provider="xAI",
-        family="Grok",
-        category="thinking",
-        deployment="cloud",
-        plan="Pro / Enterprise",
-        score_code_completion=8.4,
-        score_code_generation=8.5,
-        score_reasoning=8.9,
-        score_chat=8.5,
-        score_debugging=8.6,
-        score_refactoring=8.4,
-        score_documentation=8.3,
-        score_multifile=8.5,
-        bench_humaneval=None,
-        bench_mbpp=None,
-        bench_swebench=None,
-        bench_gpqa=79.9,
-        bench_mmlu=88.5,
-        context_window=131_072,
-        thinking_mode=True,
-        tool_calling=True,
-        streaming=True,
-        gpu_min=None,
-        gpu_recommended=None,
-        tensor_parallel=None,
-        vram_gb=None,
-        license_note="Accessed via xAI API",
-        doc_url="https://docs.tabnine.com/main/welcome/readme/ai-models",
-        tags=["thinking", "efficient", "cost-effective"],
-    ),
-
-    # ── Mistral (self-hosted) ────────────────────────────────────────────────
-
-    TabnineModel(
-        id="devstral-small-2",
-        display_name="Devstral Small 2 (24B)",
-        provider="Mistral",
-        family="Devstral",
-        category="coding",
-        deployment="self-hosted",
-        plan="Enterprise (Private Mode)",
-        score_code_completion=8.7,
-        score_code_generation=8.9,
-        score_reasoning=7.8,
-        score_chat=7.5,
-        score_debugging=8.8,
-        score_refactoring=8.6,
-        score_documentation=8.0,
-        score_multifile=8.7,
-        bench_humaneval=None,
-        bench_mbpp=None,
-        bench_swebench=46.8,
-        bench_gpqa=None,
-        bench_mmlu=None,
-        context_window=128_000,
-        thinking_mode=False,
-        tool_calling=True,
-        streaming=True,
-        gpu_min="1× H100 (80 GB)",
-        gpu_recommended="1× H100 (80 GB)",
-        tensor_parallel=1,
-        vram_gb=80,
-        license_note="Apache 2.0 — open weights",
-        doc_url="https://docs.tabnine.com/main/welcome/readme/system-requirements/system-requirements",
-        tags=["self-hosted", "coding-specialist", "open-weights", "private-mode"],
-    ),
-
-    TabnineModel(
-        id="devstral-2",
-        display_name="Devstral 2 (123B)",
-        provider="Mistral",
-        family="Devstral",
-        category="coding",
-        deployment="self-hosted",
-        plan="Enterprise (Private Mode)",
-        score_code_completion=9.1,
-        score_code_generation=9.3,
-        score_reasoning=8.5,
-        score_chat=8.0,
-        score_debugging=9.2,
-        score_refactoring=9.0,
-        score_documentation=8.5,
-        score_multifile=9.1,
-        bench_humaneval=None,
-        bench_mbpp=None,
-        bench_swebench=56.0,
-        bench_gpqa=None,
-        bench_mmlu=None,
-        context_window=128_000,
-        thinking_mode=False,
-        tool_calling=True,
-        streaming=True,
-        gpu_min="4× H100 (80 GB)",
-        gpu_recommended="4× H100 (80 GB)",
-        tensor_parallel=4,
-        vram_gb=320,
-        license_note="Modified MIT — revenue >$20M requires Devstral permission",
-        doc_url="https://docs.tabnine.com/main/welcome/readme/system-requirements/system-requirements",
-        tags=["self-hosted", "coding-specialist", "open-weights", "private-mode", "large"],
-    ),
-
-    # ── MiniMax (self-hosted) ────────────────────────────────────────────────
-
-    TabnineModel(
-        id="minimax-m2.7",
-        display_name="MiniMax M2.7",
-        provider="MiniMax",
-        family="MiniMax",
-        category="general",
-        deployment="self-hosted",
-        plan="Enterprise (Private Mode)",
-        score_code_completion=8.5,
-        score_code_generation=8.7,
-        score_reasoning=8.8,
-        score_chat=9.0,
-        score_debugging=8.6,
-        score_refactoring=8.5,
-        score_documentation=9.0,
-        score_multifile=8.8,
-        bench_humaneval=None,
-        bench_mbpp=None,
-        bench_swebench=None,
-        bench_gpqa=None,
-        bench_mmlu=None,
-        context_window=180_000,
-        thinking_mode=True,
-        tool_calling=True,
-        streaming=True,
-        gpu_min="8× H100 (80 GB)",
-        gpu_recommended="8× H100 (80 GB)",
-        tensor_parallel=8,
-        vram_gb=640,
-        license_note="Open weights — check MiniMax terms",
-        doc_url="https://docs.tabnine.com/main/welcome/readme/system-requirements/system-requirements",
-        tags=["self-hosted", "MoE", "private-mode", "large-context", "thinking"],
-    ),
-
-    # ── Poolside (self-hosted) ───────────────────────────────────────────────
-
-    TabnineModel(
-        id="laguna-xs2",
-        display_name="Poolside Laguna XS.2 (FP8)",
-        provider="Poolside",
-        family="Laguna",
-        category="coding",
-        deployment="self-hosted",
-        plan="Enterprise (Private Mode)",
-        score_code_completion=9.0,
-        score_code_generation=9.2,
-        score_reasoning=8.6,
-        score_chat=7.8,
-        score_debugging=9.1,
-        score_refactoring=9.0,
-        score_documentation=8.3,
-        score_multifile=9.0,
-        bench_humaneval=None,
-        bench_mbpp=None,
-        bench_swebench=None,
-        bench_gpqa=None,
-        bench_mmlu=None,
-        context_window=131_072,
-        thinking_mode=True,
-        tool_calling=True,
-        streaming=True,
-        gpu_min="4× H100 (80 GB)",
-        gpu_recommended="4× H100 (80 GB)",
-        tensor_parallel=4,
-        vram_gb=320,
-        license_note="Proprietary — Poolside commercial license",
-        doc_url="https://docs.tabnine.com/main/welcome/readme/system-requirements/system-requirements",
-        tags=["self-hosted", "coding-specialist", "thinking", "FP8", "private-mode"],
-    ),
-
-    # ── Kodu ────────────────────────────────────────────────────────────────
-
-    TabnineModel(
-        id="kodu",
-        display_name="Kodu",
-        provider="Kodu AI",
-        family="Kodu",
-        category="coding",
-        deployment="cloud",
-        plan="Pro / Enterprise",
-        score_code_completion=8.6,
-        score_code_generation=8.8,
-        score_reasoning=8.0,
-        score_chat=8.2,
-        score_debugging=8.7,
-        score_refactoring=8.5,
-        score_documentation=8.4,
-        score_multifile=8.9,
-        bench_humaneval=None,
-        bench_mbpp=None,
-        bench_swebench=None,
-        bench_gpqa=None,
-        bench_mmlu=None,
-        context_window=200_000,
-        thinking_mode=False,
-        tool_calling=True,
-        streaming=True,
-        gpu_min=None,
-        gpu_recommended=None,
-        tensor_parallel=None,
-        vram_gb=None,
-        license_note="Accessed via Kodu API",
-        doc_url="https://docs.tabnine.com/main/welcome/readme/ai-models",
-        tags=["coding-specialist", "agentic"],
-    ),
-
-    # ── Tabnine Protected (cloud, no external data sent) ────────────────────
-
-    TabnineModel(
-        id="tabnine-protected",
-        display_name="Tabnine Protected Model",
-        provider="Tabnine",
-        family="Tabnine",
-        category="coding",
-        deployment="cloud",
-        plan="Pro / Enterprise",
-        score_code_completion=8.5,
-        score_code_generation=8.5,
-        score_reasoning=7.5,
-        score_chat=7.8,
-        score_debugging=8.4,
-        score_refactoring=8.4,
-        score_documentation=8.2,
-        score_multifile=8.3,
-        bench_humaneval=None,
-        bench_mbpp=None,
-        bench_swebench=None,
-        bench_gpqa=None,
-        bench_mmlu=None,
-        context_window=100_000,
-        thinking_mode=False,
-        tool_calling=True,
-        streaming=True,
-        gpu_min=None,
-        gpu_recommended=None,
-        tensor_parallel=None,
-        vram_gb=None,
-        license_note="Tabnine proprietary — no code leaves Tabnine infrastructure",
-        doc_url="https://docs.tabnine.com/main/welcome/readme/ai-models",
-        tags=["privacy-first", "no-data-sharing", "SaaS-safe"],
-    ),
+MODELS = [
+    _c("claude-4.8-opus","Claude 4.8 Opus","Anthropic","Claude","thinking",CLD,PRO,9.5,9.6,9.8,9.5,9.6,9.5,9.4,9.7,N,N,N,N,N,N,200000,True,True,True,N,N,N,N,"Anthropic API",_D,["thinking","flagship","newest"]),
+    _c("claude-4.7-opus","Claude 4.7 Opus","Anthropic","Claude","thinking",CLD,PRO,9.4,9.5,9.7,9.4,9.5,9.4,9.3,9.6,N,N,N,N,N,N,200000,True,True,True,N,N,N,N,"Anthropic API",_D,["thinking","flagship"]),
+    _c("claude-4.6-opus","Claude 4.6 Opus","Anthropic","Claude","thinking",CLD,PRO,9.3,9.4,9.6,9.3,9.4,9.3,9.2,9.5,N,N,N,N,N,N,200000,True,True,True,N,N,N,N,"Anthropic API",_D,["thinking","flagship"]),
+    _c("claude-4.6-sonnet","Claude 4.6 Sonnet","Anthropic","Claude","thinking",CLD,PRO,9.2,9.3,9.5,9.3,9.3,9.2,9.2,9.4,N,N,N,N,N,N,200000,True,True,True,N,N,N,N,"Anthropic API",_D,["thinking","balanced"]),
+    _c("claude-4.5-opus","Claude 4.5 Opus","Anthropic","Claude","thinking",CLD,PRO,9.2,9.3,9.5,9.2,9.3,9.2,9.1,9.4,N,N,N,N,N,N,200000,True,True,True,N,N,N,N,"Anthropic API",_D,["thinking"]),
+    _c("claude-4.5-sonnet","Claude 4.5 Sonnet","Anthropic","Claude","thinking",CLD,PRO,9.1,9.2,9.4,9.2,9.2,9.1,9.1,9.3,N,N,N,N,N,N,200000,True,True,True,N,N,N,N,"Anthropic API",_D,["thinking","popular"]),
+    _c("claude-4.5-haiku","Claude 4.5 Haiku","Anthropic","Claude","thinking",CLD,PRO,8.8,8.9,9.0,8.9,8.9,8.8,8.8,9.0,N,N,N,N,N,N,200000,True,True,True,N,N,N,N,"Anthropic API",_D,["thinking","fast","efficient"]),
+    _c("claude-4-sonnet","Claude 4 Sonnet","Anthropic","Claude","thinking",CLD,PRO,9.0,9.1,9.3,9.1,9.1,9.0,9.0,9.2,92.1,N,72.7,84.8,90.1,N,200000,True,True,True,N,N,N,N,"Anthropic API",_D,["thinking","proven"]),
+    _c("gpt-5.5","GPT-5.5","OpenAI","GPT","thinking",CLD,PRO,9.5,9.6,9.7,9.5,9.6,9.5,9.4,9.6,N,N,N,N,N,N,1000000,True,True,True,N,N,N,N,"OpenAI API",_D,["thinking","flagship","newest","large-context"]),
+    _c("gpt-5.4","GPT-5.4","OpenAI","GPT","thinking",CLD,PRO,9.4,9.5,9.6,9.4,9.5,9.4,9.3,9.5,N,N,N,N,N,N,1000000,True,True,True,N,N,N,N,"OpenAI API",_D,["thinking","flagship","large-context"]),
+    _c("gpt-5.3-codex","GPT-5.3 Codex","OpenAI","GPT","coding",CLD,PRO,9.5,9.6,9.3,8.8,9.5,9.4,9.0,9.4,N,N,N,N,N,N,1000000,True,True,True,N,N,N,N,"OpenAI API",_D,["thinking","coding-specialist","large-context"]),
+    _c("gpt-5.2-codex","GPT-5.2 Codex","OpenAI","GPT","coding",CLD,PRO,9.4,9.5,9.2,8.7,9.4,9.3,8.9,9.3,N,N,N,N,N,N,1000000,True,True,True,N,N,N,N,"OpenAI API",_D,["thinking","coding-specialist","large-context"]),
+    _c("gpt-5.2","GPT-5.2","OpenAI","GPT","thinking",CLD,PRO,9.3,9.4,9.5,9.3,9.4,9.3,9.2,9.4,N,N,N,N,N,N,1000000,True,True,True,N,N,N,N,"OpenAI API",_D,["thinking","flagship","large-context"]),
+    _c("gpt-5","GPT-5","OpenAI","GPT","thinking",CLD,PRO,9.2,9.3,9.5,9.3,9.3,9.2,9.2,9.3,N,N,N,N,N,N,1000000,True,True,True,N,N,N,N,"OpenAI API",_D,["thinking","flagship","large-context"]),
+    _c("gpt-4o","GPT-4o","OpenAI","GPT","general",CLD,PRO,9.0,9.1,8.9,9.0,9.0,8.9,9.1,8.8,90.2,87.5,N,N,88.7,N,128000,False,True,True,N,N,N,N,"OpenAI API",_D,["proven","multimodal","popular"]),
+    _c("gemini-3.5-pro","Gemini 3.5 Pro","Google","Gemini","general",CLD,PRO,9.3,9.4,9.5,9.3,9.4,9.2,9.2,9.4,N,N,N,N,N,N,1000000,False,True,True,N,N,N,N,"Google API",_D,["flagship","huge-context","multimodal","newest"]),
+    _c("gemini-3.1-pro","Gemini 3.1 Pro","Google","Gemini","general",CLD,PRO,9.1,9.2,9.3,9.1,9.2,9.0,9.0,9.2,N,N,N,N,N,N,1000000,False,True,True,N,N,N,N,"Google API",_D,["flagship","huge-context","multimodal"]),
+    _c("gemini-3.0-pro","Gemini 3.0 Pro","Google","Gemini","thinking",CLD,PRO,9.1,9.3,9.6,9.2,9.3,9.1,9.0,9.4,N,N,63.8,84.0,89.0,N,1000000,True,True,True,N,N,N,N,"Google API",_D,["thinking","huge-context","multimodal"]),
+    _c("devstral-2-123b","Devstral 2 (123B)","Mistral","Devstral","coding",SH,ENT,9.1,9.3,8.5,8.0,9.2,9.0,8.5,9.1,N,N,56.0,N,N,N,128000,False,True,True,"4x H100","4x B200",4,320,"Modified MIT",_H,["self-hosted","coding-specialist","open-weights"]),
+    _c("devstral-small-2-24b","Devstral Small 2 (24B)","Mistral","Devstral","coding",SH,ENT,8.7,8.9,7.8,7.5,8.8,8.6,8.0,8.7,N,N,46.8,N,N,N,128000,False,True,True,"2x H100","2x B200",2,160,"Apache 2.0",_H,["self-hosted","coding-specialist","open-weights","efficient"]),
+    _c("minimax-m2.7","MiniMax-M2.7","MiniMax","MiniMax","general",SH,ENT,8.5,8.7,8.8,9.0,8.6,8.5,9.0,8.8,N,N,N,N,N,N,180000,True,True,True,"8x H100","8x B200",8,640,"Open weights",_H,["self-hosted","MoE","thinking","large-context"]),
+    _c("minimax-m2.5","MiniMax-M2.5","MiniMax","MiniMax","general",SH,ENT,8.3,8.5,8.5,8.8,8.4,8.3,8.8,8.5,N,N,N,N,N,N,180000,False,True,True,"2x H200","2x B200",2,160,"Open weights",_H,["self-hosted","MoE"]),
+    _c("laguna-xs2","Poolside Laguna XS.2","Poolside","Laguna","coding",SH,ENT,9.0,9.2,8.6,7.8,9.1,9.0,8.3,9.0,N,N,N,N,N,N,131072,True,True,True,"2x H100","4x H100",4,320,"Proprietary",_H,["self-hosted","coding-specialist","thinking"]),
+    _c("laguna-xs2-fp8","Poolside Laguna XS.2 FP8","Poolside","Laguna","coding",SH,ENT,8.9,9.1,8.5,7.7,9.0,8.9,8.2,8.9,N,N,N,N,N,N,131072,True,True,True,"2x H100","4x H100",4,320,"Proprietary",_H,["self-hosted","coding-specialist","FP8"]),
+    _c("glm-4.7","GLM-4.7","Zhipu AI","GLM","general",SH,ENT,8.6,8.7,8.7,8.8,8.7,8.6,8.8,8.7,N,N,N,N,N,N,128000,False,True,True,"8x H100","2x B200",2,160,"Open weights",_H,["self-hosted","MoE"]),
+    _c("qwen3-coder-480b","Qwen-3-Coder-480B","Alibaba","Qwen","coding",SH,ENT,9.2,9.4,8.8,8.5,9.3,9.2,8.7,9.2,N,N,N,N,N,N,131072,True,True,True,"8x H100","8x B200",8,640,"Apache 2.0",_H,["self-hosted","coding-specialist","open-weights","large"]),
+    _c("qwen3-30b","Qwen-3-30B","Alibaba","Qwen","general",SH,ENT,8.5,8.7,8.8,8.6,8.7,8.5,8.7,8.6,N,N,N,N,N,N,131072,True,True,True,"2x B200","2x B200",2,160,"Apache 2.0",_H,["self-hosted","open-weights","efficient"]),
+    _c("qwen3.6-27b","Qwen3.6-27B","Alibaba","Qwen","general",SH,ENT,8.4,8.6,8.6,8.5,8.6,8.4,8.6,8.5,N,N,N,N,N,N,131072,False,True,True,"4x H100","2x B200",2,160,"Apache 2.0",_H,["self-hosted","open-weights"]),
+    _c("tabnine-protected","Tabnine Protected Model","Tabnine","Tabnine","coding",CLD,PRO,8.5,8.5,7.5,7.8,8.4,8.4,8.2,8.3,N,N,N,N,N,N,100000,False,True,True,N,N,N,N,"Tabnine proprietary",_D,["privacy-first","no-data-sharing"]),
 ]
 
-# ---------------------------------------------------------------------------
-# Task → model recommendation mapping
-# ---------------------------------------------------------------------------
-
 TASKS = {
-    "Inline Code Completion":       "score_code_completion",
-    "Code Generation":              "score_code_generation",
+    "Inline Code Completion": "score_code_completion",
+    "Code Generation": "score_code_generation",
     "Complex Reasoning / Planning": "score_reasoning",
-    "Chat / Q&A":                   "score_chat",
-    "Debugging":                    "score_debugging",
-    "Refactoring":                  "score_refactoring",
-    "Documentation":                "score_documentation",
-    "Multi-file / Agentic":         "score_multifile",
+    "Chat / Q&A": "score_chat",
+    "Debugging": "score_debugging",
+    "Refactoring": "score_refactoring",
+    "Documentation": "score_documentation",
+    "Multi-file / Agentic": "score_multifile",
 }
 
 BENCHMARK_COLUMNS = {
-    "HumanEval (pass@1 %)":  "bench_humaneval",
-    "MBPP (pass@1 %)":       "bench_mbpp",
-    "SWE-bench (% resolved)":"bench_swebench",
-    "GPQA (%)":              "bench_gpqa",
-    "MMLU (%)":              "bench_mmlu",
+    "HumanEval (pass@1 %)": "bench_humaneval",
+    "MBPP (pass@1 %)": "bench_mbpp",
+    "SWE-bench (% resolved)": "bench_swebench",
+    "GPQA (%)": "bench_gpqa",
+    "MMLU (%)": "bench_mmlu",
+    "LiveCodeBench (%)": "bench_livecodebench",
 }
 
 SCORE_COLUMNS = {v: k for k, v in TASKS.items()}

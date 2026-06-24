@@ -61,6 +61,75 @@ PROVIDER_COLORS = {
 }
 
 # ---------------------------------------------------------------------------
+# Data-source citations — shown in chart hover tooltips and table header tips
+# ---------------------------------------------------------------------------
+
+SOURCES: dict[str, str] = {
+    # Capability scores
+    "Code Completion":  "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
+    "Code Generation":  "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
+    "Reasoning":        "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
+    "Chat":             "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
+    "Debugging":        "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
+    "Refactoring":      "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
+    "Documentation":    "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
+    "Multi-file":       "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
+    "Overall Score":    "Weighted average of 8 capability scores · Tabnine AI Models docs",
+    # Benchmarks
+    "HumanEval (%)":       "EvalPlus Leaderboard · evalplus.github.io/leaderboard.html · pass@1 on HumanEval+",
+    "MBPP (%)":            "EvalPlus Leaderboard · evalplus.github.io/leaderboard.html · pass@1 on MBPP+",
+    "SWE-bench (%)":       "SWE-bench Verified · swebench.com · % of GitHub issues resolved end-to-end",
+    "GPQA (%)":            "Published model cards & papers · Graduate-level STEM Q&A (Diamond set)",
+    "MMLU (%)":            "Published model cards & papers · Massive Multitask Language Understanding",
+    "LiveCodeBench (%)":   "LiveCodeBench · livecodebench.github.io · contamination-free coding benchmark",
+    # Technical / hardware specs
+    "Context (K)":  "Tabnine System Requirements · docs.tabnine.com/main/welcome/readme/system-requirements",
+    "GPU (min)":    "Tabnine System Requirements · docs.tabnine.com/main/welcome/readme/system-requirements",
+    "VRAM (GB)":    "Tabnine System Requirements · docs.tabnine.com/main/welcome/readme/system-requirements",
+    # Model metadata
+    "Provider":    "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
+    "Family":      "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
+    "Category":    "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
+    "Deployment":  "Tabnine Model Settings · docs.tabnine.com/main/administering-tabnine/managing-your-team/settings/models-settings",
+    "Plan":        "Tabnine Model Settings · docs.tabnine.com/main/administering-tabnine/managing-your-team/settings/models-settings",
+    "Thinking":    "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
+    "Tool Calling":"Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
+    "License":     "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
+}
+
+# Generic fallback shown when a specific key is not in SOURCES
+_FALLBACK_SOURCE = "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models"
+
+
+def with_source(df_slice: pd.DataFrame, key: str) -> pd.DataFrame:
+    """Return a copy of *df_slice* with a '📄 Source' column appended.
+
+    Pass the result straight to a Plotly Express call and include
+    ``hover_data={"📄 Source": True}`` — the source citation then appears
+    at the bottom of every hover tooltip.
+    """
+    out = df_slice.copy()
+    out["📄 Source"] = SOURCES.get(key, _FALLBACK_SOURCE)
+    return out
+
+
+def col_cfg(*field_names: str) -> dict:
+    """Build a ``column_config`` dict for ``st.dataframe``.
+
+    Each named field gets a ``help=`` tooltip (the ℹ icon on the column
+    header) showing its authoritative source when the user hovers over it.
+
+    Usage::
+
+        st.dataframe(df, column_config=col_cfg("HumanEval (%)", "MBPP (%)"))
+    """
+    config = {}
+    for name in field_names:
+        source = SOURCES.get(name, _FALLBACK_SOURCE)
+        config[name] = st.column_config.Column(help=f"Source: {source}")
+    return config
+
+# ---------------------------------------------------------------------------
 # Custom CSS
 # ---------------------------------------------------------------------------
 
@@ -138,12 +207,18 @@ def pchart(fig, height=None):
     st.plotly_chart(fig, use_container_width=True)
 
 
-def dtable(df_arg, height=None):
-    """Render a DataFrame full-width, compatible with Streamlit 1.58+."""
+def dtable(df_arg, height=None, column_config=None):
+    """Render a DataFrame full-width, compatible with Streamlit 1.58+.
+
+    Pass ``column_config=col_cfg(...)`` to attach source-citation tooltips
+    to individual column headers.
+    """
+    kwargs = {"use_container_width": True}
     if height:
-        st.dataframe(df_arg, use_container_width=True, height=height)
-    else:
-        st.dataframe(df_arg, use_container_width=True)
+        kwargs["height"] = height
+    if column_config:
+        kwargs["column_config"] = column_config
+    st.dataframe(df_arg, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -242,7 +317,39 @@ with st.sidebar:
         "[LiveCodeBench](https://livecodebench.github.io/)"
     )
 
+    st.markdown("### Data Sources")
+    st.caption("Toggle which sources are visible across all tabs.")
+
+    src_tabnine  = st.checkbox("Tabnine Docs (scores & metadata)", value=True, key="src_tabnine")
+    src_evalplus = st.checkbox("EvalPlus (HumanEval / MBPP)",      value=True, key="src_evalplus")
+    src_swebench = st.checkbox("SWE-bench Verified",               value=True, key="src_swebench")
+    src_livecodebench = st.checkbox("LiveCodeBench",               value=True, key="src_livecodebench")
+    src_gpqa_mmlu     = st.checkbox("Model Cards (GPQA / MMLU)",   value=True, key="src_gpqa_mmlu")
+
+# ---------------------------------------------------------------------------
+# Source-visibility gates — built from sidebar toggles
+# ---------------------------------------------------------------------------
+
+ACTIVE_BENCH_COLS: list[str] = []
+if src_evalplus:
+    ACTIVE_BENCH_COLS += ["HumanEval (%)", "MBPP (%)"]
+if src_swebench:
+    ACTIVE_BENCH_COLS += ["SWE-bench (%)"]
+if src_gpqa_mmlu:
+    ACTIVE_BENCH_COLS += ["GPQA (%)", "MMLU (%)"]
+if src_livecodebench:
+    ACTIVE_BENCH_COLS += ["LiveCodeBench (%)"]
+
+CAP_COLS_ALL = [
+    "Code Completion", "Code Generation", "Reasoning", "Chat",
+    "Debugging", "Refactoring", "Documentation", "Multi-file",
+]
+ACTIVE_CAP_COLS = CAP_COLS_ALL if src_tabnine else []
+
+# ---------------------------------------------------------------------------
 # Apply filters
+# ---------------------------------------------------------------------------
+
 mask = (
     df_scored["Provider"].isin(sel_providers) &
     df_scored["Category"].isin(sel_categories) &
@@ -316,8 +423,9 @@ with tab_overview:
 
     st.markdown('<div class="section-header">Overall Model Scores</div>', unsafe_allow_html=True)
 
+    _df_bar = with_source(df.sort_values("Overall Score", ascending=True), "Overall Score")
     fig_bar = px.bar(
-        df.sort_values("Overall Score", ascending=True),
+        _df_bar,
         x="Overall Score",
         y="Model",
         color="Provider",
@@ -327,6 +435,7 @@ with tab_overview:
         range_x=[0, 10],
         height=max(400, len(df) * 38),
         labels={"Overall Score": "Weighted Average Score (0–10)"},
+        hover_data={"📄 Source": True},
     )
     fig_bar.update_traces(texttemplate="%{text:.2f}", textposition="outside")
     fig_bar.update_layout(
@@ -339,8 +448,9 @@ with tab_overview:
 
     st.markdown('<div class="section-header">Code Generation vs Reasoning</div>', unsafe_allow_html=True)
 
+    _df_scatter = with_source(df, "Code Generation")
     fig_scatter = px.scatter(
-        df,
+        _df_scatter,
         x="Reasoning",
         y="Code Generation",
         color="Provider",
@@ -348,7 +458,7 @@ with tab_overview:
         size="Context (K)",
         size_max=28,
         hover_name="Model",
-        hover_data={"Deployment": True, "Thinking": True, "Context (K)": True},
+        hover_data={"Deployment": True, "Thinking": True, "Context (K)": True, "📄 Source": True},
         text="Model",
         labels={"Code Generation": "Code Generation Score", "Reasoning": "Reasoning Score"},
     )
@@ -363,26 +473,33 @@ with tab_overview:
 
     st.markdown('<div class="section-header">Capability Heatmap (All Tasks)</div>', unsafe_allow_html=True)
 
-    cap_cols = [
-        "Code Completion", "Code Generation", "Reasoning", "Chat",
-        "Debugging", "Refactoring", "Documentation", "Multi-file",
-    ]
-    heatmap_data = df.set_index("Model")[cap_cols]
-    fig_heat = px.imshow(
-        heatmap_data,
-        text_auto=".1f",
-        color_continuous_scale="Blues",
-        zmin=5,
-        zmax=10,
-        aspect="auto",
-        height=max(400, len(df) * 36),
-    )
-    fig_heat.update_layout(
-        xaxis_title=None,
-        yaxis_title=None,
-        coloraxis_colorbar_title="Score",
-    )
-    pchart(fig_heat)
+    if not ACTIVE_CAP_COLS:
+        st.info("Enable **Tabnine Docs** in the Data Sources sidebar to show capability scores.")
+    else:
+        heatmap_data = df.set_index("Model")[ACTIVE_CAP_COLS]
+        fig_heat = px.imshow(
+            heatmap_data,
+            text_auto=".1f",
+            color_continuous_scale="Blues",
+            zmin=5,
+            zmax=10,
+            aspect="auto",
+            height=max(400, len(df) * 36),
+        )
+        fig_heat.update_layout(
+            xaxis_title=None,
+            yaxis_title=None,
+            coloraxis_colorbar_title="Score",
+        )
+        fig_heat.update_traces(
+            hovertemplate=(
+                "<b>%{y}</b><br>%{x}: %{z:.1f}<br>"
+                "<span style='color:#888;font-size:0.85em'>📄 Source: "
+                "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models"
+                "</span><extra></extra>"
+            )
+        )
+        pchart(fig_heat)
 
 
 # ============================================================
@@ -396,16 +513,15 @@ with tab_compare:
 
     if df_cmp.empty:
         st.info("Select at least one model in the sidebar to compare.")
+    elif not ACTIVE_CAP_COLS:
+        st.info("Enable **Tabnine Docs** in the Data Sources sidebar to show capability scores.")
     else:
-        cap_cols = [
-            "Code Completion", "Code Generation", "Reasoning", "Chat",
-            "Debugging", "Refactoring", "Documentation", "Multi-file",
-        ]
-        categories = cap_cols + [cap_cols[0]]
+        categories = ACTIVE_CAP_COLS + [ACTIVE_CAP_COLS[0]]
 
         fig_radar = go.Figure()
+        _radar_source = SOURCES.get("Code Completion", _FALLBACK_SOURCE)
         for _, row in df_cmp.iterrows():
-            values = [row[c] for c in cap_cols] + [row[cap_cols[0]]]
+            values = [row[c] for c in ACTIVE_CAP_COLS] + [row[ACTIVE_CAP_COLS[0]]]
             provider = row["Provider"]
             fig_radar.add_trace(go.Scatterpolar(
                 r=values,
@@ -414,6 +530,13 @@ with tab_compare:
                 name=row["Model"],
                 line_color=PROVIDER_COLORS.get(provider, "#888"),
                 opacity=0.65,
+                hovertemplate=(
+                    "<b>" + row["Model"] + "</b><br>"
+                    "%{theta}: %{r:.1f}<br>"
+                    "<span style='color:#888;font-size:0.85em'>"
+                    f"📄 Source: {_radar_source}"
+                    "</span><extra></extra>"
+                ),
             ))
         fig_radar.update_layout(
             polar=dict(radialaxis=dict(visible=True, range=[0, 10])),
@@ -425,7 +548,7 @@ with tab_compare:
 
         st.markdown('<div class="section-header">Capability Scores — Grouped Bar</div>', unsafe_allow_html=True)
 
-        long = capability_long_df(df_cmp)
+        long = with_source(capability_long_df(df_cmp), "Code Completion")
         fig_grp = px.bar(
             long,
             x="Task",
@@ -434,6 +557,7 @@ with tab_compare:
             barmode="group",
             range_y=[0, 10],
             height=420,
+            hover_data={"📄 Source": True},
         )
         fig_grp.update_layout(plot_bgcolor="white", xaxis_title=None)
         pchart(fig_grp)
@@ -442,7 +566,14 @@ with tab_compare:
 
         display_cols = ["Model", "Provider", "Category", "Deployment", "Context (K)",
                         "Thinking", "Tool Calling"] + cap_cols + ["Overall Score"]
-        dtable(df_cmp[display_cols].set_index("Model"))
+        dtable(
+            df_cmp[display_cols].set_index("Model"),
+            column_config=col_cfg(
+                "Provider", "Category", "Deployment", "Context (K)",
+                "Thinking", "Tool Calling",
+                *cap_cols, "Overall Score",
+            ),
+        )
 
 
 # ============================================================
@@ -461,16 +592,23 @@ with tab_benchmarks:
         )
 
     bench_cols = ["HumanEval (%)", "MBPP (%)", "SWE-bench (%)", "GPQA (%)", "MMLU (%)", "LiveCodeBench (%)"]
+    # Filter to only columns whose source is enabled in the sidebar
+    visible_bench_cols = [c for c in bench_cols if c in ACTIVE_BENCH_COLS]
     df_bench = df[["Model", "Provider"] + bench_cols].copy()
 
-    bench_sel = st.selectbox("Select benchmark", options=bench_cols, index=0)
+    if not visible_bench_cols:
+        st.info("Enable at least one benchmark source in the **Data Sources** sidebar.")
+        st.stop()
+
+    bench_sel = st.selectbox("Select benchmark", options=visible_bench_cols, index=0)
     df_b_filtered = df_bench.dropna(subset=[bench_sel]).sort_values(bench_sel, ascending=True)
 
     if df_b_filtered.empty:
         st.warning(f"No models have reported {bench_sel} scores yet.")
     else:
+        _df_bench_bar = with_source(df_b_filtered, bench_sel)
         fig_bench = px.bar(
-            df_b_filtered,
+            _df_bench_bar,
             x=bench_sel,
             y="Model",
             color="Provider",
@@ -479,6 +617,7 @@ with tab_benchmarks:
             text=bench_sel,
             height=max(350, len(df_b_filtered) * 42),
             labels={bench_sel: f"{bench_sel} Score"},
+            hover_data={"📄 Source": True},
         )
         fig_bench.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
         fig_bench.update_layout(
@@ -491,7 +630,7 @@ with tab_benchmarks:
     # Pure Plotly heatmap — no matplotlib dependency
     st.markdown('<div class="section-header">All Benchmarks — Heatmap</div>', unsafe_allow_html=True)
 
-    bench_heat_df = df_bench.set_index("Model")[bench_cols].astype(float)
+    bench_heat_df = df_bench.set_index("Model")[visible_bench_cols].astype(float)
     fig_bench_heat = px.imshow(
         bench_heat_df,
         text_auto=".1f",
@@ -503,6 +642,15 @@ with tab_benchmarks:
         labels={"color": "Score (%)"},
     )
     fig_bench_heat.update_layout(xaxis_title=None, yaxis_title=None)
+    # imshow doesn't support hover_data — embed source per benchmark column in hovertemplate
+    fig_bench_heat.update_traces(
+        hovertemplate=(
+            "<b>%{y}</b><br>%{x}: %{z:.1f}%<br>"
+            "<span style='color:#888;font-size:0.85em'>"
+            "📄 Source: see Benchmark definitions below"
+            "</span><extra></extra>"
+        )
+    )
     pchart(fig_bench_heat)
 
     with st.expander("Benchmark definitions"):
@@ -560,8 +708,9 @@ with tab_task:
         unsafe_allow_html=True,
     )
 
+    _df_task_bar = with_source(df_task.head(10), score_col)
     fig_task = px.bar(
-        df_task.head(10),
+        _df_task_bar,
         x=score_col,
         y="Model",
         color="Provider",
@@ -572,22 +721,28 @@ with tab_task:
         height=420,
         labels={score_col: f"{task_label} Score"},
         title=f"Top 10 models for: {task_label}",
+        hover_data={"📄 Source": True},
     )
     fig_task.update_traces(texttemplate="%{text:.1f}", textposition="outside")
     fig_task.update_layout(plot_bgcolor="white", yaxis_title=None)
     pchart(fig_task)
 
-    dtable(df_task[["Model", "Provider", "Deployment", "Thinking", "Context (K)", score_col]])
+    dtable(
+        df_task[["Model", "Provider", "Deployment", "Thinking", "Context (K)", score_col]],
+        column_config=col_cfg("Provider", "Deployment", "Thinking", "Context (K)", score_col),
+    )
 
     st.markdown('<div class="section-header">Cloud vs Self-Hosted for this task</div>', unsafe_allow_html=True)
 
+    _df_dep = with_source(df[[score_col, "Deployment"]], score_col)
     fig_dep = px.box(
-        df[[score_col, "Deployment"]],
+        _df_dep,
         x="Deployment",
         y=score_col,
         color="Deployment",
         points="all",
         labels={score_col: f"{task_label} Score"},
+        hover_data={"📄 Source": True},
     )
     fig_dep.update_layout(showlegend=False, plot_bgcolor="white", height=350)
     pchart(fig_dep)
@@ -608,8 +763,12 @@ with tab_hardware:
         col_a, col_b = st.columns(2)
 
         with col_a:
-            fig_vram = px.bar(
+            _df_vram = with_source(
                 df_hw.dropna(subset=["VRAM (GB)"]).sort_values("VRAM (GB)", ascending=True),
+                "VRAM (GB)",
+            )
+            fig_vram = px.bar(
+                _df_vram,
                 x="VRAM (GB)",
                 y="Model",
                 color="Provider",
@@ -618,14 +777,16 @@ with tab_hardware:
                 text="VRAM (GB)",
                 height=350,
                 title="Minimum GPU VRAM (GB)",
+                hover_data={"📄 Source": True},
             )
             fig_vram.update_traces(texttemplate="%{text} GB", textposition="outside")
             fig_vram.update_layout(plot_bgcolor="white", yaxis_title=None)
             pchart(fig_vram)
 
         with col_b:
+            _df_ctx = with_source(df_hw.sort_values("Context (K)", ascending=True), "Context (K)")
             fig_ctx = px.bar(
-                df_hw.sort_values("Context (K)", ascending=True),
+                _df_ctx,
                 x="Context (K)",
                 y="Model",
                 color="Provider",
@@ -634,6 +795,7 @@ with tab_hardware:
                 text="Context (K)",
                 height=350,
                 title="Context Window (K tokens)",
+                hover_data={"📄 Source": True},
             )
             fig_ctx.update_traces(texttemplate="%{text:.0f}K", textposition="outside")
             fig_ctx.update_layout(plot_bgcolor="white", yaxis_title=None)
@@ -643,13 +805,20 @@ with tab_hardware:
 
         hw_cols = ["Model", "Provider", "GPU (min)", "VRAM (GB)",
                    "Context (K)", "Thinking", "Tool Calling", "License"]
-        dtable(df_hw[hw_cols].set_index("Model"))
+        dtable(
+            df_hw[hw_cols].set_index("Model"),
+            column_config=col_cfg(
+                "Provider", "GPU (min)", "VRAM (GB)", "Context (K)",
+                "Thinking", "Tool Calling", "License",
+            ),
+        )
 
         st.markdown('<div class="section-header">VRAM vs Context Window (self-hosted)</div>', unsafe_allow_html=True)
 
         df_hw_clean = df_hw.dropna(subset=["VRAM (GB)"])
+        _df_bubble = with_source(df_hw_clean, "VRAM (GB)")
         fig_bubble = px.scatter(
-            df_hw_clean,
+            _df_bubble,
             x="Context (K)",
             y="VRAM (GB)",
             color="Provider",
@@ -657,7 +826,7 @@ with tab_hardware:
             size="Overall Score",
             size_max=40,
             text="Model",
-            hover_data={"GPU (min)": True},
+            hover_data={"GPU (min)": True, "📄 Source": True},
             labels={"VRAM (GB)": "Min VRAM (GB)", "Context (K)": "Context Window (K tokens)"},
         )
         fig_bubble.update_traces(textposition="top center", textfont_size=9)
@@ -668,8 +837,9 @@ with tab_hardware:
     st.markdown('<div class="section-header">Cloud Models — Context Window</div>', unsafe_allow_html=True)
 
     df_cloud = df[df["Deployment"] != "Self Hosted"].copy()
+    _df_ctx_cloud = with_source(df_cloud.sort_values("Context (K)", ascending=True), "Context (K)")
     fig_ctx_cloud = px.bar(
-        df_cloud.sort_values("Context (K)", ascending=True),
+        _df_ctx_cloud,
         x="Context (K)",
         y="Model",
         color="Provider",
@@ -678,6 +848,7 @@ with tab_hardware:
         text="Context (K)",
         height=max(300, len(df_cloud) * 38),
         title="Cloud Model Context Windows",
+        hover_data={"📄 Source": True},
     )
     fig_ctx_cloud.update_traces(texttemplate="%{text:.0f}K", textposition="outside")
     fig_ctx_cloud.update_layout(plot_bgcolor="white", yaxis_title=None)
@@ -691,15 +862,14 @@ with tab_table:
 
     st.markdown('<div class="section-header">Complete Model Registry</div>', unsafe_allow_html=True)
 
-    table_cols = [
-        "Model", "Provider", "Family", "Category", "Deployment", "Plan",
-        "Context (K)", "Thinking", "Tool Calling",
-        "Code Completion", "Code Generation", "Reasoning", "Chat",
-        "Debugging", "Refactoring", "Documentation", "Multi-file",
-        "Overall Score",
-        "HumanEval (%)", "MBPP (%)", "SWE-bench (%)", "GPQA (%)", "MMLU (%)", "LiveCodeBench (%)",
-        "GPU (min)", "VRAM (GB)", "License",
-    ]
+    _meta_cols  = ["Model", "Provider", "Family", "Category", "Deployment", "Plan",
+                   "Context (K)", "Thinking", "Tool Calling"]
+    _cap_cols   = (ACTIVE_CAP_COLS + ["Overall Score"]) if ACTIVE_CAP_COLS else []
+    _bench_cols = [c for c in ["HumanEval (%)", "MBPP (%)", "SWE-bench (%)",
+                               "GPQA (%)", "MMLU (%)", "LiveCodeBench (%)"]
+                   if c in ACTIVE_BENCH_COLS]
+    _hw_cols    = ["GPU (min)", "VRAM (GB)", "License"]
+    table_cols  = _meta_cols + _cap_cols + _bench_cols + _hw_cols
 
     search = st.text_input("Search model name or provider", "")
     df_tbl = df[table_cols].copy()
@@ -710,7 +880,11 @@ with tab_table:
         )
         df_tbl = df_tbl[mask_s]
 
-    dtable(df_tbl.set_index("Model"), height=550)
+    dtable(
+        df_tbl.set_index("Model"),
+        height=550,
+        column_config=col_cfg(*[c for c in table_cols if c != "Model"]),
+    )
 
     csv = df_tbl.to_csv(index=False).encode()
     st.download_button(
