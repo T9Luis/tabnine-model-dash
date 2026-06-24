@@ -94,7 +94,9 @@ SOURCES: dict[str, str] = {
     "Plan":        "Tabnine Model Settings · docs.tabnine.com/main/administering-tabnine/managing-your-team/settings/models-settings",
     "Thinking":    "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
     "Tool Calling":"Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
-    "License":     "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
+    "License":            "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
+    "Status":             "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
+    "Tabnine Available":  "Tabnine AI Models docs · docs.tabnine.com/main/welcome/readme/ai-models",
 }
 
 # Generic fallback shown when a specific key is not in SOURCES
@@ -193,6 +195,58 @@ st.markdown(
           font-weight: 700;
           vertical-align: middle;
       }}
+
+      /* Availability badges */
+      .avail-yes {{
+          background: {ACCENT_GREEN};
+          color: white;
+          padding: 0.18rem 0.6rem;
+          border-radius: 999px;
+          font-size: 0.75rem;
+          font-weight: 600;
+          white-space: nowrap;
+      }}
+      .avail-soon {{
+          background: {ACCENT_ORANGE};
+          color: white;
+          padding: 0.18rem 0.6rem;
+          border-radius: 999px;
+          font-size: 0.75rem;
+          font-weight: 600;
+          white-space: nowrap;
+      }}
+
+      /* Source-aware HTML table */
+      .src-table {{
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 0.82rem;
+          margin-top: 0.5rem;
+      }}
+      .src-table th {{
+          background: {TABNINE_DARK};
+          color: white;
+          padding: 0.45rem 0.7rem;
+          text-align: left;
+          font-weight: 600;
+          white-space: nowrap;
+      }}
+      .src-table tr:nth-child(even) {{ background: #f4f7ff; }}
+      .src-table tr:hover td {{ background: #dce8ff !important; }}
+      .src-table td {{
+          padding: 0.38rem 0.7rem;
+          border-bottom: 1px solid #e5eaf5;
+          cursor: default;
+      }}
+      /* Dim rows for coming-soon models */
+      .src-table tr.coming-soon td {{
+          opacity: 0.55;
+          font-style: italic;
+      }}
+      .src-table tr.coming-soon:hover td {{
+          opacity: 0.8 !important;
+          background: #fff8e8 !important;
+      }}
     </style>
     """,
     unsafe_allow_html=True,
@@ -219,6 +273,65 @@ def dtable(df_arg, height=None, column_config=None):
     if column_config:
         kwargs["column_config"] = column_config
     st.dataframe(df_arg, **kwargs)
+
+
+def html_table(df_arg: pd.DataFrame, max_rows: int = 200) -> None:
+    """Render *df_arg* as a styled HTML table with per-cell hover source tooltips.
+
+    Each cell carries a ``title`` attribute — the browser shows it as a
+    native tooltip on hover (no JS required). Coming-soon models are
+    rendered in a dimmed italic style.
+
+    Args:
+        df_arg:   DataFrame to render. If it has a 'Tabnine Available' column,
+                  that is used to apply the coming-soon row class and is then
+                  dropped from display.
+        max_rows: Safety cap to avoid giant DOM payloads.
+    """
+    import html as _html
+
+    display_df = df_arg.head(max_rows).copy()
+
+    # Extract availability info before dropping the sentinel column
+    if "Tabnine Available" in display_df.columns:
+        avail_map = display_df["Tabnine Available"].to_dict()
+        display_df = display_df.drop(columns=["Tabnine Available"])
+    else:
+        avail_map = {}
+
+    def _cell_source(col: str) -> str:
+        return SOURCES.get(col, _FALLBACK_SOURCE)
+
+    def _fmt(val) -> str:
+        if val is None or (isinstance(val, float) and pd.isna(val)):
+            return "—"
+        return _html.escape(str(val))
+
+    # Build header
+    headers = "".join(
+        f'<th title="Source: {_cell_source(col)}">{_html.escape(str(col))}</th>'
+        for col in display_df.columns
+    )
+
+    # Build rows
+    rows_html = []
+    for idx, row in display_df.iterrows():
+        is_avail = avail_map.get(idx, True)
+        row_class = "" if is_avail else " class=\"coming-soon\""
+        cells = "".join(
+            f'<td title="📄 Source: {_cell_source(col)}">{_fmt(row[col])}</td>'
+            for col in display_df.columns
+        )
+        rows_html.append(f"<tr{row_class}>{cells}</tr>")
+
+    table_html = (
+        f'<div style="overflow-x:auto;max-height:520px;overflow-y:auto">'
+        f'<table class="src-table">'
+        f'<thead><tr>{headers}</tr></thead>'
+        f'<tbody>{"".join(rows_html)}</tbody>'
+        f'</table></div>'
+    )
+    st.markdown(table_html, unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------------------------
@@ -294,7 +407,8 @@ with st.sidebar:
         options=sorted(df_scored["Deployment"].unique()),
         default=sorted(df_scored["Deployment"].unique()),
     )
-    thinking_only = st.checkbox("Thinking models only", value=False)
+    thinking_only    = st.checkbox("Thinking models only", value=False)
+    show_upcoming    = st.checkbox("Include upcoming models (not yet in Tabnine)", value=True)
 
     st.markdown("---")
     st.markdown("### Compare Models")
@@ -357,6 +471,8 @@ mask = (
 )
 if thinking_only:
     mask &= df_scored["Thinking"] == "✓"
+if not show_upcoming:
+    mask &= df_scored["Tabnine Available"] == True
 
 df = df_scored[mask].copy()
 
@@ -435,9 +551,15 @@ with tab_overview:
         range_x=[0, 10],
         height=max(400, len(df) * 38),
         labels={"Overall Score": "Weighted Average Score (0–10)"},
-        hover_data={"📄 Source": True},
+        hover_data={"📄 Source": True, "Status": True},
+        pattern_shape="Status",
+        pattern_shape_map={"✅ Available": "", "🔜 Coming Soon": "/"},
     )
-    fig_bar.update_traces(texttemplate="%{text:.2f}", textposition="outside")
+    fig_bar.update_traces(
+        texttemplate="%{text:.2f}",
+        textposition="outside",
+        marker_opacity=_df_bar["Tabnine Available"].map({True: 1.0, False: 0.45}).tolist(),
+    )
     fig_bar.update_layout(
         plot_bgcolor="white",
         legend_title_text="Provider",
@@ -455,10 +577,13 @@ with tab_overview:
         y="Code Generation",
         color="Provider",
         color_discrete_map=PROVIDER_COLORS,
+        symbol="Status",
+        symbol_map={"✅ Available": "circle", "🔜 Coming Soon": "diamond-open"},
         size="Context (K)",
         size_max=28,
         hover_name="Model",
-        hover_data={"Deployment": True, "Thinking": True, "Context (K)": True, "📄 Source": True},
+        hover_data={"Deployment": True, "Thinking": True, "Context (K)": True,
+                    "Status": True, "📄 Source": True},
         text="Model",
         labels={"Code Generation": "Code Generation Score", "Reasoning": "Reasoning Score"},
     )
@@ -564,16 +689,10 @@ with tab_compare:
 
         st.markdown('<div class="section-header">Summary Table</div>', unsafe_allow_html=True)
 
-        display_cols = ["Model", "Provider", "Category", "Deployment", "Context (K)",
-                        "Thinking", "Tool Calling"] + cap_cols + ["Overall Score"]
-        dtable(
-            df_cmp[display_cols].set_index("Model"),
-            column_config=col_cfg(
-                "Provider", "Category", "Deployment", "Context (K)",
-                "Thinking", "Tool Calling",
-                *cap_cols, "Overall Score",
-            ),
-        )
+        display_cols = ["Model", "Status", "Provider", "Category", "Deployment", "Context (K)",
+                        "Thinking", "Tool Calling"] + ACTIVE_CAP_COLS + ["Overall Score"]
+        st.caption("Hover any cell to see its data source. Dimmed rows = coming-soon models.")
+        html_table(df_cmp[display_cols + ["Tabnine Available"]].set_index("Model"))
 
 
 # ============================================================
@@ -727,9 +846,10 @@ with tab_task:
     fig_task.update_layout(plot_bgcolor="white", yaxis_title=None)
     pchart(fig_task)
 
-    dtable(
-        df_task[["Model", "Provider", "Deployment", "Thinking", "Context (K)", score_col]],
-        column_config=col_cfg("Provider", "Deployment", "Thinking", "Context (K)", score_col),
+    st.caption("Hover any cell to see its data source. Dimmed rows = coming-soon models.")
+    html_table(
+        df_task[["Model", "Status", "Provider", "Deployment", "Thinking", "Context (K)",
+                 score_col, "Tabnine Available"]].set_index("Model")
     )
 
     st.markdown('<div class="section-header">Cloud vs Self-Hosted for this task</div>', unsafe_allow_html=True)
@@ -803,15 +923,10 @@ with tab_hardware:
 
         st.markdown('<div class="section-header">Deployment Specs</div>', unsafe_allow_html=True)
 
-        hw_cols = ["Model", "Provider", "GPU (min)", "VRAM (GB)",
+        hw_cols = ["Model", "Status", "Provider", "GPU (min)", "VRAM (GB)",
                    "Context (K)", "Thinking", "Tool Calling", "License"]
-        dtable(
-            df_hw[hw_cols].set_index("Model"),
-            column_config=col_cfg(
-                "Provider", "GPU (min)", "VRAM (GB)", "Context (K)",
-                "Thinking", "Tool Calling", "License",
-            ),
-        )
+        st.caption("Hover any cell to see its data source. Dimmed rows = coming-soon models.")
+        html_table(df_hw[hw_cols + ["Tabnine Available"]].set_index("Model"))
 
         st.markdown('<div class="section-header">VRAM vs Context Window (self-hosted)</div>', unsafe_allow_html=True)
 
@@ -862,7 +977,7 @@ with tab_table:
 
     st.markdown('<div class="section-header">Complete Model Registry</div>', unsafe_allow_html=True)
 
-    _meta_cols  = ["Model", "Provider", "Family", "Category", "Deployment", "Plan",
+    _meta_cols  = ["Model", "Status", "Provider", "Family", "Category", "Deployment", "Plan",
                    "Context (K)", "Thinking", "Tool Calling"]
     _cap_cols   = (ACTIVE_CAP_COLS + ["Overall Score"]) if ACTIVE_CAP_COLS else []
     _bench_cols = [c for c in ["HumanEval (%)", "MBPP (%)", "SWE-bench (%)",
@@ -871,8 +986,17 @@ with tab_table:
     _hw_cols    = ["GPU (min)", "VRAM (GB)", "License"]
     table_cols  = _meta_cols + _cap_cols + _bench_cols + _hw_cols
 
+    # Legend
+    st.markdown(
+        '<span class="avail-yes">✅ Available</span> &nbsp; model is live in Tabnine today &nbsp;&nbsp; '
+        '<span class="avail-soon">🔜 Coming Soon</span> &nbsp; tracked frontier model, not yet in Tabnine',
+        unsafe_allow_html=True,
+    )
+    st.caption("Hover any cell to see its data source. Dimmed rows = coming-soon models.")
+
     search = st.text_input("Search model name or provider", "")
-    df_tbl = df[table_cols].copy()
+    # Include Tabnine Available as a sentinel column for row styling (hidden from display)
+    df_tbl = df[table_cols + ["Tabnine Available"]].copy()
     if search:
         mask_s = (
             df_tbl["Model"].str.contains(search, case=False, na=False) |
@@ -880,11 +1004,7 @@ with tab_table:
         )
         df_tbl = df_tbl[mask_s]
 
-    dtable(
-        df_tbl.set_index("Model"),
-        height=550,
-        column_config=col_cfg(*[c for c in table_cols if c != "Model"]),
-    )
+    html_table(df_tbl.set_index("Model"))
 
     csv = df_tbl.to_csv(index=False).encode()
     st.download_button(
